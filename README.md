@@ -39,7 +39,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The browser suite uses FFmpeg's `ffprobe` to check the downloaded silent clip's actual container, 1280×720 video stream, duration, and absence of audio; install FFmpeg before running it locally. It also tests a browser-advertised MP4 encoder that rejects construction, ensuring WebM fallback. These checks use a synthetic canvas, not Reachy's camera.
+The browser suite uses FFmpeg's `ffprobe` to check the downloaded silent clip's actual container, 1280×720 video stream, duration, and absence of audio; install FFmpeg before running it locally. It also tests a browser-advertised MP4 encoder that rejects construction, ensuring WebM fallback. A separate full-round browser test crosses the actual authenticated loopback relay to a fake model, checking the three live requests, final pick, reveal, and text-free trace together. These checks use fixtures and a synthetic canvas, not Jev or Reachy's camera.
 
 To inspect the UI without a robot, run `npm run dev` and open `http://127.0.0.1:5173/?preview=1`. Preview mode does not simulate model answers or robot motion. The end-to-end tests use a synthetic relay fixture to exercise the full round and failure UI; they are not evidence of a live Jev run.
 
