@@ -66,6 +66,7 @@ test("trace rejects partial rounds and mismatched evidence", () => {
   const recorder = new SessionTrace();
   assert.throws(() => recorder.add(new Round().snapshot, live), TypeError);
   assert.throws(() => recorder.add(completedRound().snapshot, live.slice(1), final, DEFAULT_THRESHOLDS), TypeError);
+  assert.throws(() => recorder.add(completedRound().snapshot, [{ ...live[0], cues: { ...cues, lie_now: 0.1 } }, ...live.slice(1)], final, DEFAULT_THRESHOLDS), /composite/);
   assert.throws(() => recorder.add(completedRound().snapshot, live, { ...final, choice: "s1" }, DEFAULT_THRESHOLDS), TypeError);
   assert.throws(() => recorder.add(completedRound(true).snapshot, live, final, DEFAULT_THRESHOLDS), TypeError);
 });

@@ -1,6 +1,6 @@
 /** Session-only round evidence. Export is text-free unless consented per round. */
 
-import type { CueProbabilities, CueWeights, CommitThresholds } from "./cues.js";
+import { liveSuspicion, type CueProbabilities, type CueWeights, type CommitThresholds } from "./cues.js";
 import type { FinalJudgment } from "./jev.js";
 import type { RoundSnapshot, StatementId } from "./round.js";
 
@@ -50,6 +50,9 @@ export class SessionTrace {
     const statements = snapshot.statements.map((statement, index) => {
       const evidence = live[index];
       if (!evidence || evidence.id !== statement.id) throw new TypeError("live evidence does not match round");
+      if (Math.abs(liveSuspicion(evidence.cues, evidence.weights) - statement.pLie) > 1e-9) {
+        throw new TypeError("live evidence does not match statement composite");
+      }
       return {
         id: statement.id,
         pLie: statement.pLie,

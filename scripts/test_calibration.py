@@ -149,6 +149,97 @@ class CalibrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bins"):
             analyze([], bins=1)
 
+    def test_recorded_composite_and_commit_rule_are_recomputed(self) -> None:
+        value = json.loads(record("s2", "s2"))
+        for statement in value["statements"]:
+            statement["cues"] = {
+                "lie_now": 0.8,
+                "implausible": 0.2,
+                "hedged": 0.1,
+                "too_specific": 0.1,
+            }
+            statement["weights"] = {
+                "lie_now": 1,
+                "implausible": 0,
+                "hedged": 0,
+                "too_specific": 0,
+            }
+            statement["pLie"] = 0.8
+        value["pick"].update(
+            {"style": "confident", "thresholds": {"hedge": 0.4, "confident": 0.7}}
+        )
+        self.assertEqual(parse_record(value, 1)[0], "jev")
+        cases = (
+            (
+                {
+                    "statements": [
+                        {
+                            key: item
+                            for key, item in value["statements"][0].items()
+                            if key != "weights"
+                        },
+                        *value["statements"][1:],
+                    ]
+                },
+                "invalid composite evidence",
+            ),
+            (
+                {
+                    "statements": [
+                        {**value["statements"][0], "pLie": 0.5},
+                        *value["statements"][1:],
+                    ]
+                },
+                "inconsistent statement composite",
+            ),
+            (
+                {
+                    "statements": [
+                        {
+                            **value["statements"][0],
+                            "weights": {
+                                **value["statements"][0]["weights"],
+                                "lie_now": 0,
+                            },
+                        },
+                        *value["statements"][1:],
+                    ]
+                },
+                "invalid composite evidence",
+            ),
+            (
+                {
+                    "statements": [
+                        {
+                            **value["statements"][0],
+                            "cues": {**value["statements"][0]["cues"], "hedged": True},
+                        },
+                        *value["statements"][1:],
+                    ]
+                },
+                "invalid composite evidence",
+            ),
+            (
+                {"pick": {**value["pick"], "style": "hedge"}},
+                "inconsistent rule-selected style",
+            ),
+            (
+                {
+                    "pick": {
+                        **value["pick"],
+                        "thresholds": {"hedge": 0.8, "confident": 0.7},
+                    }
+                },
+                "invalid commit thresholds",
+            ),
+        )
+        for change, message in cases:
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                parse_record({**value, **change}, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

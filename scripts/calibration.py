@@ -16,6 +16,7 @@ from typing import Any
 SCHEMA = "pokerface.round@1"
 IDS = {"s1", "s2", "s3"}
 HIGH_CONFIDENCE_THRESHOLD = 0.7
+CUE_KEYS = {"lie_now", "implausible", "hedged", "too_specific"}
 
 
 def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -26,6 +27,34 @@ def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ValueError("duplicate JSON key")
         value[key] = item
     return value
+
+
+def finite_number(value: Any) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def check_composite(statement: dict[str, Any], line_number: int) -> None:
+    """Check the exported meter against its recorded inputs when available."""
+    if "cues" not in statement and "weights" not in statement:
+        return  # Older minimal traces cannot be recomputed.
+    cues, weights = statement.get("cues"), statement.get("weights")
+    if (
+        not isinstance(cues, dict)
+        or not isinstance(weights, dict)
+        or set(cues) != CUE_KEYS
+        or set(weights) != CUE_KEYS
+    ):
+        raise ValueError(f"line {line_number}: invalid composite evidence")
+    if any(not finite_number(cues[key]) or not 0 <= cues[key] <= 1 for key in CUE_KEYS):
+        raise ValueError(f"line {line_number}: invalid composite evidence")
+    if any(not finite_number(weights[key]) or weights[key] < 0 for key in CUE_KEYS):
+        raise ValueError(f"line {line_number}: invalid composite evidence")
+    total = sum(weights.values())
+    if not math.isfinite(total) or total <= 0:
+        raise ValueError(f"line {line_number}: invalid composite evidence")
+    expected = sum(cues[key] * weights[key] for key in CUE_KEYS) / total
+    if not math.isfinite(expected) or abs(expected - statement["pLie"]) > 1e-9:
+        raise ValueError(f"line {line_number}: inconsistent statement composite")
 
 
 def parse_record(
@@ -44,13 +73,9 @@ def parse_record(
         raise ValueError(f"line {line_number}: expected three ordered statements")
     for statement in statements:
         probability = statement.get("pLie")
-        if (
-            isinstance(probability, bool)
-            or not isinstance(probability, (int, float))
-            or not math.isfinite(probability)
-            or not 0 <= probability <= 1
-        ):
+        if not finite_number(probability) or not 0 <= probability <= 1:
             raise ValueError(f"line {line_number}: invalid statement composite")
+        check_composite(statement, line_number)
     pick = value.get("pick")
     if not isinstance(pick, dict) or pick.get("source") not in {"jev", "fallback"}:
         raise ValueError(f"line {line_number}: missing pick provenance")
@@ -85,13 +110,29 @@ def parse_record(
     model, confidence = pick.get("model"), pick.get("confidence")
     if not isinstance(model, str) or not model.strip() or len(model) > 80:
         raise ValueError(f"line {line_number}: missing model provenance")
-    if (
-        isinstance(confidence, bool)
-        or not isinstance(confidence, (float, int))
-        or not math.isfinite(confidence)
-        or not 0 <= confidence <= 1
-    ):
+    if not finite_number(confidence) or not 0 <= confidence <= 1:
         raise ValueError(f"line {line_number}: invalid confidence")
+    if "thresholds" in pick:
+        thresholds = pick["thresholds"]
+        if (
+            not isinstance(thresholds, dict)
+            or set(thresholds) != {"hedge", "confident"}
+            or any(
+                not finite_number(item) or not 0 <= item <= 1
+                for item in thresholds.values()
+            )
+            or thresholds["hedge"] >= thresholds["confident"]
+        ):
+            raise ValueError(f"line {line_number}: invalid commit thresholds")
+        expected_style = (
+            "confident"
+            if confidence >= thresholds["confident"]
+            else "hedge"
+            if confidence >= thresholds["hedge"]
+            else "coin_flip"
+        )
+        if pick.get("style") != expected_style:
+            raise ValueError(f"line {line_number}: inconsistent rule-selected style")
     if ("modelCommitStyle" in pick or "styleDisagrees" in pick) and (
         pick.get("modelCommitStyle") not in {"confident", "hedge", "coin_flip"}
         or pick.get("style") not in {"confident", "hedge", "coin_flip"}
