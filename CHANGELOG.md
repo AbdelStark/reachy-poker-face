@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Define the live/final question batches as versioned `reachy-jev` banks and project them through the shared validator; pin the typed wire builder and preserve the reviewed TypeSafe request bytes.
 - Offer an explicit native file-share action for consented silent clips after reveal when the browser supports it; cancellation preserves the local clip, with download and discard still available.
 - Keep the round in `INTRO` until the operator confirms the opening line has finished; only then open statement capture and start a consented clip. Request cancellation of any remaining speech before capture, without claiming a robot-silence receipt.
 - Ask Jev for the final `commit_style` Choice and record whether its suggestion disagrees with the app's confidence-based style; keep the code rule authoritative and reject contradictory style evidence in calibration input.

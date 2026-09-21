@@ -1,9 +1,37 @@
 import type { EntryType, Questions } from "@typesafe-ai/sdk";
+import { toTypeSafeQuestions, type QuestionBank } from "reachy-jev";
 import type { CueProbabilities, DeliveryAnalysis } from "./cues.js";
 import type { Statement, StatementId } from "./round.js";
 
-export const LIVE_BANK = "pokerface.live@0.1.0";
-export const FINAL_BANK = "pokerface.final@0.1.0";
+export const LIVE_QUESTION_BANK = {
+  bank: "pokerface.live",
+  version: "0.1.0",
+  questions: {
+    lie_now: { type: "noul", instructions: "Within this game, does this statement seem more likely to be the invented one than a true personal fact? Judge only the text and delivery; do not infer real-world honesty." },
+    implausible: { type: "noul", instructions: "Does the statement itself describe an implausible event, rather than merely an unusual one?" },
+    hedged: { type: "noul", instructions: "Does the statement text contain explicit hedging, uncertainty, or self-correction?" },
+    too_specific: { type: "noul", instructions: "Does the statement add unnecessary detail that sounds rehearsed? Detail alone does not imply a lie." },
+    generic: { type: "noul", instructions: "Is the statement so generic it could apply to almost anyone?" },
+  },
+} satisfies QuestionBank;
+export const FINAL_QUESTION_BANK = {
+  bank: "pokerface.final",
+  version: "0.1.0",
+  questions: {
+    contradiction: { type: "noul", instructions: "Do any two statements contradict each other about the same fact?" },
+    the_lie: { type: "choice", instructions: "Which of the three statements is most likely the invented one in this game? Choose one even if uncertain.", options: ["s1", "s2", "s3"] },
+    commit_style: {
+      type: "choice",
+      instructions: "What theatrical commitment style fits this game pick: confident, hedge, or coin_flip? This is only a model suggestion; code chooses the actual style from the_lie confidence.",
+      options: ["confident", "hedge", "coin_flip"],
+    },
+    top_cue: { type: "choice", instructions: "Which single cue most influenced that pick? Choose none if no cue stands out.", options: ["hedging", "implausibility", "over_detail", "vagueness", "contradiction", "none"] },
+  },
+} satisfies QuestionBank;
+export const LIVE_BANK = `${LIVE_QUESTION_BANK.bank}@${LIVE_QUESTION_BANK.version}`;
+export const FINAL_BANK = `${FINAL_QUESTION_BANK.bank}@${FINAL_QUESTION_BANK.version}`;
+export const liveQuestions = toTypeSafeQuestions(LIVE_QUESTION_BANK, []);
+export const finalQuestions = toTypeSafeQuestions(FINAL_QUESTION_BANK, []);
 
 export interface JevAnswer { type: "noul" | "choice"; noul?: number; choice?: string; confidence?: number }
 export interface JevReply { model: string; answers: Record<string, JevAnswer> }
@@ -37,14 +65,6 @@ export function liveState(current: CapturedStatement, earlier: readonly Captured
     earlier_statements: earlier.map((s) => ({ id: s.id, text: clipped(s.text) })),
   };
 }
-export const liveQuestions = {
-  lie_now: { type: "noul", instructions: "Within this game, does this statement seem more likely to be the invented one than a true personal fact? Judge only the text and delivery; do not infer real-world honesty." },
-  implausible: { type: "noul", instructions: "Does the statement itself describe an implausible event, rather than merely an unusual one?" },
-  hedged: { type: "noul", instructions: "Does the statement text contain explicit hedging, uncertainty, or self-correction?" },
-  too_specific: { type: "noul", instructions: "Does the statement add unnecessary detail that sounds rehearsed? Detail alone does not imply a lie." },
-  generic: { type: "noul", instructions: "Is the statement so generic it could apply to almost anyone?" },
-} as const;
-
 export async function askLive(client: JevPort, current: CapturedStatement, earlier: readonly CapturedStatement[], signal?: AbortSignal): Promise<CueProbabilities> {
   const response = await client.systemOne({ state: liveState(current, earlier), questions: liveQuestions }, signal);
   const cues = {
@@ -64,16 +84,6 @@ export function finalState(statements: readonly Statement[]) {
     statements: statements.map((s) => ({ id: s.id, text: clipped(s.text), ...(s.delivery.length ? { delivery: [...s.delivery] } : {}) })),
   };
 }
-export const finalQuestions = {
-  contradiction: { type: "noul", instructions: "Do any two statements contradict each other about the same fact?" },
-  the_lie: { type: "choice", instructions: "Which of the three statements is most likely the invented one in this game? Choose one even if uncertain.", criteria: { s1: null, s2: null, s3: null } },
-  commit_style: {
-    type: "choice",
-    instructions: "What theatrical commitment style fits this game pick: confident, hedge, or coin_flip? This is only a model suggestion; code chooses the actual style from the_lie confidence.",
-    criteria: { confident: null, hedge: null, coin_flip: null },
-  },
-  top_cue: { type: "choice", instructions: "Which single cue most influenced that pick? Choose none if no cue stands out.", criteria: { hedging: null, implausibility: null, over_detail: null, vagueness: null, contradiction: null, none: null } },
-} as const;
 export interface FinalJudgment {
   choice: StatementId;
   confidence: number;

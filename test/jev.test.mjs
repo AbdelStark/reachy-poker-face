@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeDelivery, askLive, askFinal, liveState, finalQuestions, finalState } from "../lib/index.js";
+import { createHash } from "node:crypto";
+import { analyzeDelivery, askLive, askFinal, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
 
 const delivery = analyzeDelivery([
   { word: "I", startMs: 0, endMs: 100 },
@@ -14,6 +15,16 @@ const statements = [
   { id: "s2", text: "I climbed the moon", delivery: ["steady"], pLie: 0.8 },
   { id: "s3", text: "I grew a tomato", delivery: ["steady"], pLie: 0.2 },
 ];
+
+test("versioned banks preserve the reviewed pre-refactor TypeSafe wire", () => {
+  assert.equal(LIVE_BANK, `${LIVE_QUESTION_BANK.bank}@${LIVE_QUESTION_BANK.version}`);
+  assert.equal(FINAL_BANK, `${FINAL_QUESTION_BANK.bank}@${FINAL_QUESTION_BANK.version}`);
+  assert.equal(Object.keys(liveQuestions).length, 5);
+  assert.equal(Object.keys(finalQuestions).length, 4);
+  // A wording/option change requires a bank-version bump and a reviewed snapshot update.
+  const wire = JSON.stringify({ liveQuestions, finalQuestions });
+  assert.equal(createHash("sha256").update(wire).digest("hex"), "6c67087c2db936f12e49d9778f54d1c3cead2789e195858bab44a378d8370c29");
+});
 
 test("live question bank uses the actual SDK wire shape", async () => {
   let request;
