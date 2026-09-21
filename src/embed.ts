@@ -81,6 +81,19 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!element) throw new Error(`missing UI element: ${selector}`);
     return element;
   };
+  const introGate = document.createElement("div");
+  introGate.id = "intro-gate";
+  introGate.className = "intro-gate";
+  introGate.hidden = true;
+  const introNote = document.createElement("p");
+  introNote.textContent = "Wait until the opening line sounds finished before opening a microphone or recording the round. Robot playback completion is not acknowledged.";
+  const beginCaptureButton = document.createElement("button");
+  beginCaptureButton.id = "begin-capture";
+  beginCaptureButton.className = "secondary";
+  beginCaptureButton.type = "button";
+  beginCaptureButton.textContent = "Begin statement 1";
+  introGate.append(introNote, beginCaptureButton);
+  q<HTMLButtonElement>("#start").after(introGate);
   const relayForm = q<HTMLFormElement>("#relay-form");
   const tokenInput = q<HTMLInputElement>("#relay-token");
   const urlInput = q<HTMLInputElement>("#relay-url");
@@ -136,6 +149,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let clipRecorder: ClipRecorder | undefined;
   let clipFile: ClipFile | undefined;
   let clipStopTimer: ReturnType<typeof setTimeout> | undefined;
+  let clipConsentForRound = false;
   let recognition: Recognition | null = null;
   let micActive = false;
   function cancelBrowserRecognition() {
@@ -282,13 +296,15 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   function render() {
     const snapshot = round.snapshot;
     const capture = snapshot.phase === "capture";
-    q<HTMLElement>("#phase").textContent = snapshot.phase === "idle" ? "Ready when you are." : snapshot.phase === "reveal" ? "The robot has chosen. Reveal the lie." : snapshot.phase === "score" ? "Round complete." : snapshot.phase === "think" ? "Thinking…" : `Statement ${snapshot.statementNumber} of 3`;
+    q<HTMLElement>("#phase").textContent = snapshot.phase === "idle" ? "Ready when you are." : snapshot.phase === "intro" ? "Opening line · wait until the speaker is quiet." : snapshot.phase === "reveal" ? "The robot has chosen. Reveal the lie." : snapshot.phase === "score" ? "Round complete." : snapshot.phase === "think" ? "Thinking…" : `Statement ${snapshot.statementNumber} of 3`;
     q<HTMLElement>("#statement-number").textContent = String(snapshot.statementNumber);
     q<HTMLButtonElement>("#start").hidden = snapshot.phase !== "idle";
+    introGate.hidden = snapshot.phase !== "intro";
     q<HTMLElement>(".capture").hidden = !capture;
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
     q<HTMLButtonElement>("#submit").disabled = !capture || busy || asrBusy || Boolean(robotCapture);
     traceTextConsent.disabled = snapshot.phase !== "idle";
+    q<HTMLInputElement>("#clip-consent").disabled = snapshot.phase !== "idle";
     q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !createRecognition();
     q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop browser microphone" : "Use browser microphone";
     robotMicButton.disabled = !robot || !capture || busy || asrBusy;
@@ -481,7 +497,6 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!relay) return announce("Connect a Jev relay first.", true);
     if (round.snapshot.phase !== "idle") return;
     round.start();
-    round.introDone();
     liveEvidence = [];
     finalEvidence = undefined;
     finalThresholds = undefined;
@@ -489,9 +504,22 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     traceTextConsent.checked = false;
     discardClip();
     const clipConsent = q<HTMLInputElement>("#clip-consent");
-    const consentedForThisRound = clipConsent.checked;
+    clipConsentForRound = clipConsent.checked;
     clipConsent.checked = false;
-    if (consentedForThisRound) {
+    clipStatus.textContent = clipConsentForRound ? "Consented clip will start with statement 1, after the opening line." : "No clip recording requested.";
+    void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
+    announce("Wait until the opening line sounds finished, then begin statement 1.");
+    render();
+  }
+  function beginCapture() {
+    if (round.snapshot.phase !== "intro") return;
+    // An early operator click must not leave browser speech running into ASR.
+    // The robot cancel is only a request; the operator still confirms silence.
+    cancelGameSpeech();
+    if (ttsRobot.checked) ttsStatus.textContent = "Robot playback cancellation requested before capture; silence is not acknowledged.";
+    round.introDone();
+    disclaimerSpoken = true;
+    if (clipConsentForRound) {
       try {
         clipRecorder = new ClipRecorder(video, () => ({
           statementNumber: round.snapshot.statementNumber,
@@ -507,9 +535,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         clipStatus.textContent = error instanceof Error ? error.message : "Local clip recording unavailable.";
         clipStatus.classList.add("error");
       }
-    } else clipStatus.textContent = "No clip recording requested.";
-    void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
-    disclaimerSpoken = true;
+    }
+    clipConsentForRound = false;
     announce("Tell the first statement. Use the button, microphone, or a gentle antenna tap.");
     statement.focus();
     render();
@@ -527,6 +554,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     finalEvidence = undefined;
     finalThresholds = undefined;
     traceTextForRound = false;
+    clipConsentForRound = false;
     const hadClip = Boolean(clipRecorder || clipFile);
     discardClip();
     clipStatus.textContent = hadClip ? "Previous clip discarded." : "No clip recording requested.";
@@ -545,6 +573,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     announce("New round ready.");
     render();
   }
+  beginCaptureButton.addEventListener("click", beginCapture);
   relayForm.addEventListener("submit", (event) => {
     event.preventDefault();
     try {

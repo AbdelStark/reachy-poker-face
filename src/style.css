@@ -57,6 +57,8 @@ button:not(:disabled):hover { transform: translateY(-1px); }
 .secondary:hover, .reveal-actions button:hover { background: #48536e; }
 .text-button { color: #b4c0d4; background: transparent; padding-left: 0; text-decoration: underline; }
 .phase { color: #e9ecf6; font-weight: 650; }
+.intro-gate { margin-top: 18px; padding: 16px; border: 1px solid #48516b; border-radius: 13px; background: #101929; }
+.intro-gate p { margin: 0 0 12px; color: #b4c0d4; font-size: .83rem; line-height: 1.5; }
 .capture { margin-top: 18px; }
 .clip-consent { display: flex; align-items: flex-start; gap: 10px; line-height: 1.4; }
 .clip-consent input { width: auto; margin: 3px 0 0; accent-color: #f4c95d; }
