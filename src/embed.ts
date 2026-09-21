@@ -52,6 +52,19 @@ function createRecognition(): Recognition | null {
   const Ctor = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
   return Ctor ? new Ctor() : null;
 }
+function clipFilename(file: ClipFile): string {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+  return `pokerface-${stamp}.${file.extension}`;
+}
+function clipShareData(file: ClipFile): ShareData {
+  const type = file.extension === "mp4" ? "video/mp4" : "video/webm";
+  return { title: "Reachy Poker Face", files: [new File([file.blob], clipFilename(file), { type })] };
+}
+function canShareClip(file: ClipFile): boolean {
+  if (typeof navigator.share !== "function" || typeof navigator.canShare !== "function") return false;
+  try { return navigator.canShare(clipShareData(file)); }
+  catch { return false; }
+}
 
 export function mountApp(robot?: Robot, media?: RobotMedia) {
   root!.innerHTML = `
@@ -67,7 +80,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
-          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><div ${robot ? "" : "hidden"}><label class="clip-consent"><input id="motion-enable" type="checkbox" /><span>Enable Reachy's game motion for this session after checking the robot and nearby space.</span></label><p id="motion-status" class="small" aria-live="polite">Motion off. Playing by text remains available; antenna taps need motion enabled.</p></div><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them. You can stop and discard a clip without ending the round.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap needs motion enabled and neutral antennas.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><div class="robot-tts" ${robot ? "" : "hidden"}><h3>Robot speaker · local TTS</h3><p class="small">Optional: only fixed game lines go to an authenticated loopback voice companion, then through Reachy's audio-upload API. Your statements are never spoken by this path.</p><form id="tts-form"><label>Local TTS URL<input id="tts-url" type="url" value="http://127.0.0.1:8050" required autocomplete="url" /></label><label>TTS token<input id="tts-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local TTS</button></form><label class="clip-consent"><input id="tts-robot" type="checkbox" disabled /><span>Use Reachy's speaker for game lines instead of this browser.</span></label><p id="tts-status" class="status" aria-live="polite">Browser speech selected. Robot speaker off.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><button id="discard-clip" class="text-button" type="button" hidden>Stop and discard clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
+          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><div ${robot ? "" : "hidden"}><label class="clip-consent"><input id="motion-enable" type="checkbox" /><span>Enable Reachy's game motion for this session after checking the robot and nearby space.</span></label><p id="motion-status" class="small" aria-live="polite">Motion off. Playing by text remains available; antenna taps need motion enabled.</p></div><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, and stop after 30 seconds. The clip stays in this tab until you discard it, start a new round, or leave; download or share makes a separate copy. Shared copies cannot be recalled. You can stop and discard a clip without ending the round.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap needs motion enabled and neutral antennas.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><div class="robot-tts" ${robot ? "" : "hidden"}><h3>Robot speaker · local TTS</h3><p class="small">Optional: only fixed game lines go to an authenticated loopback voice companion, then through Reachy's audio-upload API. Your statements are never spoken by this path.</p><form id="tts-form"><label>Local TTS URL<input id="tts-url" type="url" value="http://127.0.0.1:8050" required autocomplete="url" /></label><label>TTS token<input id="tts-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local TTS</button></form><label class="clip-consent"><input id="tts-robot" type="checkbox" disabled /><span>Use Reachy's speaker for game lines instead of this browser.</span></label><p id="tts-status" class="status" aria-live="polite">Browser speech selected. Robot speaker off.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><button id="share-clip" class="secondary" type="button" hidden>Share clip…</button><button id="discard-clip" class="text-button" type="button" hidden>Stop and discard clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
           <div class="card"><div class="section-heading"><span class="step">05</span><h2>Session trace</h2></div><p class="small">Completed rounds stay in this tab only. Export JSONL to inspect picks and calibration later. Statement text is excluded by default; neither nickname nor video is included.</p><label class="clip-consent"><input id="trace-text-consent" type="checkbox" /><span>Include the next round's statement text in the trace export. Ask the player first.</span></label><button id="download-trace" class="secondary" type="button" disabled>Download trace JSONL</button><button id="clear-trace" class="text-button" type="button" disabled>Discard session trace</button><p id="trace-status" class="status" aria-live="polite">No completed rounds in this session.</p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -112,6 +125,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   const downloadTraceButton = q<HTMLButtonElement>("#download-trace");
   const clearTraceButton = q<HTMLButtonElement>("#clear-trace");
   const downloadClipButton = q<HTMLButtonElement>("#download-clip");
+  const shareClipButton = q<HTMLButtonElement>("#share-clip");
   const discardClipButton = q<HTMLButtonElement>("#discard-clip");
   const statement = q<HTMLTextAreaElement>("#statement");
   const asrForm = q<HTMLFormElement>("#asr-form");
@@ -148,6 +162,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let fallbackRounds = 0;
   let clipRecorder: ClipRecorder | undefined;
   let clipFile: ClipFile | undefined;
+  let sharePending = false;
   let clipStopTimer: ReturnType<typeof setTimeout> | undefined;
   let clipConsentForRound = false;
   let recognition: Recognition | null = null;
@@ -260,6 +275,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       discardClipButton.hidden = false;
       discardClipButton.textContent = "Discard local clip";
       downloadClipButton.hidden = round.snapshot.phase !== "score";
+      shareClipButton.hidden = downloadClipButton.hidden || !canShareClip(file);
       clipStatus.textContent = downloadClipButton.hidden ? "Silent clip captured; download after the reveal." : `Silent ${file.extension.toUpperCase()} clip ready in this tab.`;
     } else {
       discardClipButton.hidden = true;
@@ -272,6 +288,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     clipRecorder = undefined;
     clipFile = undefined;
     downloadClipButton.hidden = true;
+    shareClipButton.hidden = true;
     discardClipButton.hidden = true;
     discardClipButton.textContent = "Stop and discard clip";
   }
@@ -669,11 +686,36 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!clipFile) return;
     const url = URL.createObjectURL(clipFile.blob);
     const anchor = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
     anchor.href = url;
-    anchor.download = `pokerface-${stamp}.${clipFile.extension}`;
+    anchor.download = clipFilename(clipFile);
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  });
+  shareClipButton.addEventListener("click", () => {
+    const file = clipFile;
+    if (!file || round.snapshot.phase !== "score" || sharePending || !canShareClip(file)) return;
+    sharePending = true;
+    shareClipButton.disabled = true;
+    // Keep the native share call inside the click's transient user activation.
+    let pending: Promise<void>;
+    try { pending = navigator.share(clipShareData(file)); }
+    catch {
+      sharePending = false;
+      shareClipButton.disabled = false;
+      clipStatus.textContent = "Sharing failed. Local clip remains available to download or discard.";
+      return;
+    }
+    void pending.then(() => {
+      if (clipFile === file) clipStatus.textContent = "Share sheet returned. Check the chosen app; local clip remains in this tab.";
+    }).catch((error: unknown) => {
+      if (clipFile !== file) return;
+      clipStatus.textContent = error instanceof DOMException && error.name === "AbortError"
+        ? `Share cancelled. Silent ${file.extension.toUpperCase()} clip remains in this tab.`
+        : "Sharing failed. Local clip remains available to download or discard.";
+    }).finally(() => {
+      sharePending = false;
+      shareClipButton.disabled = false;
+    });
   });
   discardClipButton.addEventListener("click", () => {
     if (!clipRecorder && !clipFile) return;
@@ -732,6 +774,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     announce(source === "fallback" ? "This was an unranked random pick, not a Jev judgment." : correct ? "Reachy picked the lie." : "You fooled Reachy.");
     if (clipFile) {
       downloadClipButton.hidden = false;
+      shareClipButton.hidden = !canShareClip(clipFile);
       clipStatus.textContent = `Silent ${clipFile.extension.toUpperCase()} clip ready in this tab.`;
     }
     if (clipRecorder) {

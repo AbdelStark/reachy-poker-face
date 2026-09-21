@@ -621,6 +621,71 @@ test("an explicitly consented round offers a silent local clip download", async 
   else expect(probe.format.format_name).toContain("webm");
 });
 
+test("file-capable browsers offer an explicit share sheet and retain the clip after cancellation", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as unknown as { shareCalls: Array<{ name: string; type: string; size: number }>; cancelShare: boolean; failShareSynchronously: boolean };
+    state.shareCalls = [];
+    state.cancelShare = true;
+    state.failShareSynchronously = false;
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: (data: ShareData) => data.files?.length === 1 && data.files[0]!.type.startsWith("video/"),
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: (data: ShareData) => {
+        const file = data.files![0]!;
+        state.shareCalls.push({ name: file.name, type: file.type, size: file.size });
+        if (state.failShareSynchronously) throw new DOMException("Share unavailable", "InvalidStateError");
+        return state.cancelShare ? Promise.reject(new DOMException("User cancelled", "AbortError")) : Promise.resolve();
+      },
+    });
+  });
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await attachSyntheticVideo(page);
+  await page.locator("#clip-consent").check();
+  await playThreeStatements(page);
+  await expect(page.locator("#share-clip")).toBeHidden();
+  await page.locator('button[data-lie="s2"]').click();
+  await expect(page.locator("#share-clip")).toBeVisible({ timeout: 7_000 });
+  await page.locator("#share-clip").click();
+  await expect(page.locator("#clip-status")).toContainText("Share cancelled");
+  await expect(page.locator("#download-clip")).toBeVisible();
+  await page.evaluate(() => { (window as unknown as { cancelShare: boolean }).cancelShare = false; });
+  await page.locator("#share-clip").click();
+  await expect(page.locator("#clip-status")).toContainText("Share sheet returned");
+  const calls = await page.evaluate(() => (window as unknown as { shareCalls: Array<{ name: string; type: string; size: number }> }).shareCalls);
+  expect(calls).toHaveLength(2);
+  expect(calls[0]).toEqual(calls[1]);
+  expect(calls[0]!.name).toMatch(/^pokerface-.*\.(mp4|webm)$/);
+  expect(calls[0]!.type).toMatch(/^video\/(mp4|webm)$/);
+  expect(calls[0]!.size).toBeGreaterThan(0);
+  await page.evaluate(() => { (window as unknown as { failShareSynchronously: boolean }).failShareSynchronously = true; });
+  await page.locator("#share-clip").click();
+  await expect(page.locator("#clip-status")).toContainText("Sharing failed");
+  await expect(page.locator("#share-clip")).toBeEnabled();
+  await expect(page.locator("#download-clip")).toBeVisible();
+  await page.getByRole("button", { name: "Discard local clip" }).click();
+  await expect(page.locator("#share-clip")).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: unknown[] }).shareCalls.length)).toBe(3);
+});
+
+test("browsers without file sharing keep the clip download-only", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: () => false });
+    Object.defineProperty(navigator, "share", { configurable: true, value: () => { throw new Error("must not share"); } });
+  });
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await attachSyntheticVideo(page);
+  await page.locator("#clip-consent").check();
+  await playThreeStatements(page);
+  await page.locator('button[data-lie="s2"]').click();
+  await expect(page.locator("#download-clip")).toBeVisible({ timeout: 7_000 });
+  await expect(page.locator("#share-clip")).toBeHidden();
+});
+
 test("reset discards a consented recording before export", async ({ page }) => {
   await page.goto("/?preview=1");
   await attachSyntheticVideo(page);
