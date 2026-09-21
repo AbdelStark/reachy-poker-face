@@ -68,7 +68,14 @@ def parse_record(
             or pick.get("style") not in (None, "coin_flip")
             or any(
                 key in pick
-                for key in ("model", "modelCommitStyle", "styleDisagrees", "topCue", "contradiction", "thresholds")
+                for key in (
+                    "model",
+                    "modelCommitStyle",
+                    "styleDisagrees",
+                    "topCue",
+                    "contradiction",
+                    "thresholds",
+                )
             )
         ):
             raise ValueError(
@@ -85,14 +92,13 @@ def parse_record(
         or not 0 <= confidence <= 1
     ):
         raise ValueError(f"line {line_number}: invalid confidence")
-    if "modelCommitStyle" in pick or "styleDisagrees" in pick:
-        if (
-            pick.get("modelCommitStyle") not in {"confident", "hedge", "coin_flip"}
-            or pick.get("style") not in {"confident", "hedge", "coin_flip"}
-            or type(pick.get("styleDisagrees")) is not bool
-            or pick["styleDisagrees"] is not (pick["modelCommitStyle"] != pick["style"])
-        ):
-            raise ValueError(f"line {line_number}: inconsistent model style evidence")
+    if ("modelCommitStyle" in pick or "styleDisagrees" in pick) and (
+        pick.get("modelCommitStyle") not in {"confident", "hedge", "coin_flip"}
+        or pick.get("style") not in {"confident", "hedge", "coin_flip"}
+        or type(pick.get("styleDisagrees")) is not bool
+        or pick["styleDisagrees"] is not (pick["modelCommitStyle"] != pick["style"])
+    ):
+        raise ValueError(f"line {line_number}: inconsistent model style evidence")
     return "jev", model, float(confidence), choice == actual
 
 

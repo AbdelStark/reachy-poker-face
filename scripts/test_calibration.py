@@ -128,9 +128,11 @@ class CalibrationTests(unittest.TestCase):
             {"modelCommitStyle": "untrusted style"},
             {"style": "untrusted style"},
         ):
-            with self.subTest(bad_pick=bad_pick):
-                with self.assertRaisesRegex(ValueError, "inconsistent model style"):
-                    parse_record({**value, "pick": {**value["pick"], **bad_pick}}, 1)
+            with (
+                self.subTest(bad_pick=bad_pick),
+                self.assertRaisesRegex(ValueError, "inconsistent model style"),
+            ):
+                parse_record({**value, "pick": {**value["pick"], **bad_pick}}, 1)
 
     def test_malformed_or_mislabelled_data_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid JSON"):
