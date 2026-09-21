@@ -173,6 +173,7 @@ test("new round ignores a late browser-recognition callback", async ({ page }) =
   await page.locator("#relay-token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect relay" }).click();
   await startRound(page);
+  await page.locator("#browser-mic-consent").check();
   await page.getByRole("button", { name: "Use browser microphone" }).click();
   const oldHandler = await page.evaluateHandle(() => (window as unknown as { fakeRecognition: { onresult: unknown } }).fakeRecognition.onresult);
   await page.getByRole("button", { name: "New round" }).click();
@@ -182,6 +183,55 @@ test("new round ignores a late browser-recognition callback", async ({ page }) =
   }, oldHandler);
   await expect(page.locator("#statement")).toHaveValue("");
   await expect(page.locator("#statements li")).toHaveCount(0);
+});
+
+test("browser speech requires fresh round consent and revocation fences late results", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition {
+      continuous = false;
+      interimResults = true;
+      lang = "";
+      onresult: ((event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      start() { (window as unknown as { fakeRecognition: FakeRecognition; starts: number }).fakeRecognition = this; (window as unknown as { starts: number }).starts++; }
+      stop() { (window as unknown as { stops: number }).stops++; this.onend?.(); }
+    }
+    (window as unknown as { starts: number; stops: number }).starts = 0;
+    (window as unknown as { starts: number; stops: number }).stops = 0;
+    (window as unknown as { SpeechRecognition: typeof FakeRecognition }).SpeechRecognition = FakeRecognition;
+  });
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await startRound(page);
+  await expect(page.locator("#browser-mic-consent")).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Use browser microphone" })).toBeDisabled();
+  expect(await page.evaluate(() => (window as unknown as { starts: number }).starts)).toBe(0);
+
+  await page.locator("#browser-mic-consent").check();
+  await page.getByRole("button", { name: "Use browser microphone" }).click();
+  await expect(page.getByRole("button", { name: "Stop browser microphone" })).toBeEnabled();
+  const oldHandler = await page.evaluateHandle(() => (window as unknown as { fakeRecognition: { onresult: unknown } }).fakeRecognition.onresult);
+  await page.evaluate((handler) => {
+    (handler as (event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void)({ results: [{ isFinal: true, 0: { transcript: "Draft recognized words here" } }] });
+  }, oldHandler);
+  await expect(page.locator("#statement")).toHaveValue("Draft recognized words here");
+  await page.locator("#browser-mic-consent").uncheck();
+  expect(await page.evaluate(() => (window as unknown as { stops: number }).stops)).toBe(1);
+  await expect(page.getByRole("button", { name: "Use browser microphone" })).toBeDisabled();
+  await page.evaluate((handler) => {
+    (handler as (event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void)({ results: [{ isFinal: true, 0: { transcript: "Revoked speech must not return" } }] });
+  }, oldHandler);
+  await page.waitForTimeout(1600);
+  await expect(page.locator("#statement")).toHaveValue("Draft recognized words here");
+  await expect(page.locator("#statements li")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "New round" }).click();
+  await startRound(page);
+  await expect(page.locator("#browser-mic-consent")).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Use browser microphone" })).toBeDisabled();
 });
 
 test("connected game keeps motion and antenna-tap start off until session arm", async ({ page }) => {

@@ -107,6 +107,15 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   beginCaptureButton.textContent = "Begin statement 1";
   introGate.append(introNote, beginCaptureButton);
   q<HTMLButtonElement>("#start").after(introGate);
+  const browserMicConsentLabel = document.createElement("label");
+  browserMicConsentLabel.className = "clip-consent browser-mic-consent";
+  const browserMicConsent = document.createElement("input");
+  browserMicConsent.id = "browser-mic-consent";
+  browserMicConsent.type = "checkbox";
+  const browserMicConsentText = document.createElement("span");
+  browserMicConsentText.textContent = "For this round, everyone audible agrees to browser microphone transcription. The browser may send audio to its speech vendor. A final transcript auto-locks after a 1.5-second pause and goes to the configured Jev relay; processing already begun cannot be retracted.";
+  browserMicConsentLabel.append(browserMicConsent, browserMicConsentText);
+  q<HTMLElement>(".capture-actions").after(browserMicConsentLabel);
   const relayForm = q<HTMLFormElement>("#relay-form");
   const tokenInput = q<HTMLInputElement>("#relay-token");
   const urlInput = q<HTMLInputElement>("#relay-url");
@@ -171,6 +180,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     const previous = recognition;
     recognition = null;
     micActive = false;
+    clearTimeout(silenceTimer);
     if (previous) {
       previous.onresult = null;
       previous.onerror = null;
@@ -322,7 +332,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLButtonElement>("#submit").disabled = !capture || busy || asrBusy || Boolean(robotCapture);
     traceTextConsent.disabled = snapshot.phase !== "idle";
     q<HTMLInputElement>("#clip-consent").disabled = snapshot.phase !== "idle";
-    q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !createRecognition();
+    browserMicConsent.disabled = !capture;
+    q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !browserMicConsent.checked || !createRecognition();
     q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop browser microphone" : "Use browser microphone";
     robotMicButton.disabled = !robot || !capture || busy || asrBusy;
     robotMicButton.textContent = robotCapture ? "Stop & transcribe" : "Record robot microphone";
@@ -566,6 +577,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     cancelRobotAudio();
     cancelGameSpeech();
     asrConsent.checked = false;
+    browserMicConsent.checked = false;
     asrStatus.textContent = "Robot microphone off. No audio sent.";
     liveEvidence = [];
     finalEvidence = undefined;
@@ -657,6 +669,13 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       asrStatus.textContent = "Robot-audio consent cleared; capture discarded or request aborted.";
       render();
     }
+  });
+  browserMicConsent.addEventListener("change", () => {
+    if (!browserMicConsent.checked) {
+      cancelBrowserRecognition();
+      announce("Browser microphone consent cleared; capture stopped. Audio already processed by the browser vendor cannot be retracted.");
+    }
+    render();
   });
   robotMicButton.addEventListener("click", () => { void toggleRobotCapture(); });
   statement.addEventListener("input", () => {
@@ -795,7 +814,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     renderLeaderboard();
   });
   q<HTMLButtonElement>("#mic").addEventListener("click", () => {
-    if (micActive) { recognition?.stop(); return; }
+    if (micActive) { cancelBrowserRecognition(); render(); return; }
+    if (round.snapshot.phase !== "capture" || !browserMicConsent.checked) return announce("Check browser microphone consent for this round first.", true);
     recognition = createRecognition();
     if (!recognition) return announce("This browser has no SpeechRecognition. Type the statement instead.", true);
     const currentRecognition = recognition;
@@ -804,7 +824,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
-      if (version !== roundVersion || recognition !== currentRecognition || round.snapshot.phase !== "capture" || busy || asrBusy) return;
+      if (version !== roundVersion || recognition !== currentRecognition || !browserMicConsent.checked || round.snapshot.phase !== "capture" || busy || asrBusy) return;
       pendingDelivery = undefined;
       const parts = Array.from(event.results);
       statement.value = parts.map((part) => part[0].transcript).join(" ").slice(0, 400);
@@ -814,9 +834,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       }
     };
     recognition.onerror = () => { if (version === roundVersion && recognition === currentRecognition) announce("Microphone transcription failed. Type the statement instead.", true); };
-    recognition.onend = () => { if (version === roundVersion && recognition === currentRecognition) { micActive = false; render(); } };
-    try { recognition.start(); micActive = true; render(); }
-    catch { announce("Microphone permission was denied or is unavailable.", true); }
+    recognition.onend = () => { if (version === roundVersion && recognition === currentRecognition) { recognition = null; micActive = false; render(); } };
+    try { recognition.start(); if (recognition === currentRecognition) { micActive = true; render(); } }
+    catch { cancelBrowserRecognition(); announce("Microphone permission was denied or is unavailable.", true); }
   });
   const onState = (event: Event) => {
     const antennas = (event as CustomEvent<{ antennas?: number[] }>).detail?.antennas;

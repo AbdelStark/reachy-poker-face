@@ -65,6 +65,7 @@ button:not(:disabled):hover { transform: translateY(-1px); }
 #download-clip { margin-top: 14px; }
 .capture-actions { display: flex; gap: 10px; }
 .capture-actions > button { flex: 1; }
+.browser-mic-consent { margin-top: 12px; }
 .capture .small { margin-top: 12px; }
 .robot-asr,.robot-tts { margin-top: 18px; padding: 16px; border: 1px solid #48516b; border-radius: 13px; background: #101929; }
 .robot-asr h3,.robot-tts h3 { margin: 0 0 8px; font-size: .92rem; }

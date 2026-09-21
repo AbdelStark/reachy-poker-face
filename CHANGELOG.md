@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Require separate per-round consent before browser SpeechRecognition can start; revocation stops capture, cancels pending automatic submission, and fences late results. Browser-vendor processing already begun cannot be retracted.
 - Define the live/final question batches as versioned `reachy-jev` banks and project them through the shared validator; pin the typed wire builder and preserve the reviewed TypeSafe request bytes.
 - Offer an explicit native file-share action for consented silent clips after reveal when the browser supports it; cancellation preserves the local clip, with download and discard still available.
 - Keep the round in `INTRO` until the operator confirms the opening line has finished; only then open statement capture and start a consented clip. Request cancellation of any remaining speech before capture, without claiming a robot-silence receipt.
