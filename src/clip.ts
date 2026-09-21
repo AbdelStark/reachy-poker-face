@@ -3,14 +3,16 @@ export interface ClipFrame { statementNumber: number; probability: number | null
 export interface ClipFile { blob: Blob; extension: "mp4" | "webm" }
 
 const MAX_DURATION_MS = 30_000;
+const MAX_CLIP_BYTES = 16_000_000;
 const WIDTH = 1280;
 const HEIGHT = 720;
 
-function mediaType(): { mimeType: string; extension: ClipFile["extension"] } {
+function mediaTypes(): Array<{ mimeType: string; extension: ClipFile["extension"] }> {
+  const formats: Array<{ mimeType: string; extension: ClipFile["extension"] }> = [];
   for (const mimeType of ["video/mp4;codecs=avc1.42E01E", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]) {
-    if (MediaRecorder.isTypeSupported(mimeType)) return { mimeType, extension: mimeType.startsWith("video/mp4") ? "mp4" : "webm" };
+    if (MediaRecorder.isTypeSupported(mimeType)) formats.push({ mimeType, extension: mimeType.startsWith("video/mp4") ? "mp4" : "webm" });
   }
-  throw new Error("This browser cannot record MP4 or WebM video.");
+  return formats;
 }
 
 export class ClipRecorder {
@@ -19,6 +21,7 @@ export class ClipRecorder {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D;
   private readonly chunks: Blob[] = [];
+  private bytes = 0;
   private readonly extension: ClipFile["extension"];
   private readonly completion: Promise<ClipFile | null>;
   private resolveCompletion!: (file: ClipFile | null) => void;
@@ -32,8 +35,8 @@ export class ClipRecorder {
     if (!consent) throw new Error("Ask everyone visible for consent before recording.");
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) throw new Error("Robot camera video is not ready yet.");
     if (typeof MediaRecorder === "undefined" || !HTMLCanvasElement.prototype.captureStream) throw new Error("This browser cannot record a local clip.");
-    const format = mediaType();
-    this.extension = format.extension;
+    const formats = mediaTypes();
+    if (!formats.length) throw new Error("This browser cannot record MP4 or WebM video.");
     this.canvas = document.createElement("canvas");
     this.canvas.width = WIDTH;
     this.canvas.height = HEIGHT;
@@ -42,9 +45,30 @@ export class ClipRecorder {
     this.context = context;
     this.stream = this.canvas.captureStream(30);
     try {
-      this.recorder = new MediaRecorder(this.stream, { mimeType: format.mimeType, videoBitsPerSecond: 2_500_000 });
+      let selected: { recorder: MediaRecorder; extension: ClipFile["extension"] } | undefined;
+      for (const format of formats) {
+        try {
+          selected = {
+            recorder: new MediaRecorder(this.stream, { mimeType: format.mimeType, videoBitsPerSecond: 2_500_000 }),
+            extension: format.extension,
+          };
+          break;
+        } catch { /* A browser can advertise a codec but reject its recorder configuration. */ }
+      }
+      if (!selected) throw new Error("This browser cannot initialize a local video recorder.");
+      this.recorder = selected.recorder;
+      this.extension = selected.extension;
       this.completion = new Promise((resolve) => { this.resolveCompletion = resolve; });
-      this.recorder.ondataavailable = (event) => { if (event.data.size) this.chunks.push(event.data); };
+      this.recorder.ondataavailable = (event) => {
+        if (!event.data.size || this.discarded) return;
+        if (this.bytes + event.data.size > MAX_CLIP_BYTES) {
+          this.discarded = true;
+          void this.finish();
+          return;
+        }
+        this.bytes += event.data.size;
+        this.chunks.push(event.data);
+      };
       this.recorder.onstop = () => this.complete();
       this.recorder.onerror = () => { this.discarded = true; this.complete(); };
       this.draw();
@@ -98,8 +122,10 @@ export class ClipRecorder {
     clearTimeout(this.timer);
     cancelAnimationFrame(this.animationFrame);
     this.stream.getTracks().forEach((track) => track.stop());
-    const blob = new Blob(this.chunks, { type: this.recorder.mimeType });
-    this.resolveCompletion(this.discarded || !blob.size ? null : { blob, extension: this.extension });
+    const blob = this.discarded ? null : new Blob(this.chunks, { type: this.recorder.mimeType });
+    this.chunks.length = 0;
+    this.bytes = 0;
+    this.resolveCompletion(blob?.size ? { blob, extension: this.extension } : null);
   }
 
   finish(): Promise<ClipFile | null> {

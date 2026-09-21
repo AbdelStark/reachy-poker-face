@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const TOKEN = "t".repeat(32);
 const ORIGIN = "http://127.0.0.1:5173";
@@ -193,6 +197,94 @@ test("silent clip recorder requires consent and produces a local video blob", as
   expect(result.discarded).toBeNull();
 });
 
+test("clip capture falls back to WebM when advertised MP4 construction fails", async ({ page }) => {
+  await page.goto("/?preview=1");
+  const result = await page.evaluate(async () => {
+    const { ClipRecorder } = await import("/src/clip.ts");
+    const NativeRecorder = MediaRecorder;
+    class RejectMp4 extends NativeRecorder {
+      static isTypeSupported(mimeType: string) {
+        return mimeType.startsWith("video/mp4") || NativeRecorder.isTypeSupported(mimeType);
+      }
+      constructor(stream: MediaStream, options?: MediaRecorderOptions) {
+        if (options?.mimeType?.startsWith("video/mp4")) throw new DOMException("MP4 encoder unavailable", "NotSupportedError");
+        super(stream, options);
+      }
+    }
+    Object.defineProperty(window, "MediaRecorder", { value: RejectMp4, configurable: true });
+    const source = document.createElement("canvas");
+    source.width = 640;
+    source.height = 360;
+    source.getContext("2d")!.fillRect(0, 0, 640, 360);
+    const stream = source.captureStream(30);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.srcObject = stream;
+    try {
+      await video.play();
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
+      }
+      const recorder = new ClipRecorder(video, () => ({ statementNumber: 1, probability: 0.5, verdict: "Test" }), true);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const file = await recorder.finish();
+      return { advertisedMp4: RejectMp4.isTypeSupported("video/mp4;codecs=avc1.42E01E"), extension: file?.extension, type: file?.blob.type, size: file?.blob.size ?? 0 };
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+      Object.defineProperty(window, "MediaRecorder", { value: NativeRecorder, configurable: true });
+    }
+  });
+  expect(result.advertisedMp4).toBe(true);
+  expect(result.extension).toBe("webm");
+  expect(result.type).toContain("video/webm");
+  expect(result.size).toBeGreaterThan(0);
+});
+
+test("an oversized recorder chunk fails closed and releases its local video track", async ({ page }) => {
+  await page.goto("/?preview=1");
+  const result = await page.evaluate(async () => {
+    const { ClipRecorder } = await import("/src/clip.ts");
+    const NativeRecorder = MediaRecorder;
+    class OversizeRecorder {
+      static isTypeSupported(mimeType: string) { return mimeType.startsWith("video/webm"); }
+      mimeType = "video/webm";
+      state: RecordingState = "inactive";
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+        queueMicrotask(() => this.ondataavailable?.({ data: new Blob([new Uint8Array(16_000_001)]) } as BlobEvent));
+      }
+      stop() { this.state = "inactive"; this.onstop?.(); }
+    }
+    Object.defineProperty(window, "MediaRecorder", { value: OversizeRecorder, configurable: true });
+    const source = document.createElement("canvas");
+    source.width = 640;
+    source.height = 360;
+    source.getContext("2d")!.fillRect(0, 0, 640, 360);
+    const stream = source.captureStream(30);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.srcObject = stream;
+    try {
+      await video.play();
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
+      }
+      const recorder = new ClipRecorder(video, () => ({ statementNumber: 1, probability: null, verdict: "Test" }), true);
+      await Promise.resolve(); // Deliver the synthetic oversized chunk before asking for completion.
+      const file = await recorder.finish();
+      const ownStream = (recorder as unknown as { stream: MediaStream }).stream;
+      return { file, released: ownStream.getTracks().every((track) => track.readyState === "ended") };
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+      Object.defineProperty(window, "MediaRecorder", { value: NativeRecorder, configurable: true });
+    }
+  });
+  expect(result).toEqual({ file: null, released: true });
+});
+
 test("a Jev-backed round updates the local leaderboard without saving statements", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
@@ -216,6 +308,14 @@ test("a Jev-backed round updates the local leaderboard without saving statements
 test("an explicitly consented round offers a silent local clip download", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
+  const mp4Ready = await page.evaluate(() => {
+    const mimeType = "video/mp4;codecs=avc1.42E01E";
+    if (!MediaRecorder.isTypeSupported(mimeType)) return false;
+    const stream = document.createElement("canvas").captureStream(1);
+    try { new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 }); return true; }
+    catch { return false; }
+    finally { stream.getTracks().forEach((track) => track.stop()); }
+  });
   await attachSyntheticVideo(page);
   await page.locator("#clip-consent").check();
   await playThreeStatements(page);
@@ -226,6 +326,21 @@ test("an explicitly consented round offers a silent local clip download", async 
   await page.getByRole("button", { name: "Download local clip" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^pokerface-.*\.(webm|mp4)$/);
+  const extension = download.suggestedFilename().split(".").at(-1);
+  if (mp4Ready) expect(extension).toBe("mp4");
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v", "error", "-show_entries", "stream=codec_type,width,height:format=format_name,duration",
+    "-of", "json", await download.path(),
+  ]);
+  const probe = JSON.parse(stdout) as {
+    streams: Array<{ codec_type: string; width?: number; height?: number }>;
+    format: { format_name: string; duration?: string };
+  };
+  expect(probe.streams).toEqual([{ codec_type: "video", width: 1280, height: 720 }]);
+  expect(Number(probe.format.duration)).toBeGreaterThan(0);
+  expect(Number(probe.format.duration)).toBeLessThanOrEqual(31);
+  if (extension === "mp4") expect(probe.format.format_name).toContain("mp4");
+  else expect(probe.format.format_name).toContain("webm");
 });
 
 test("reset discards a consented recording before export", async ({ page }) => {

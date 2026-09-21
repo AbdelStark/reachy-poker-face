@@ -33,6 +33,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+The browser suite uses FFmpeg's `ffprobe` to check the downloaded silent clip's actual container, 1280×720 video stream, duration, and absence of audio; install FFmpeg before running it locally. It also tests a browser-advertised MP4 encoder that rejects construction, ensuring WebM fallback. These checks use a synthetic canvas, not Reachy's camera.
+
 To inspect the UI without a robot, run `npm run dev` and open `http://127.0.0.1:5173/?preview=1`. Preview mode does not simulate model answers or robot motion. The end-to-end tests use a synthetic relay fixture to exercise the full round and failure UI; they are not evidence of a live Jev run.
 
 For model-backed local play, set `TYPESAFE_API_KEY`, a random `REACHY_JEV_RELAY_TOKEN` of at least 32 characters, and run `npm run relay` in a separate shell. The relay binds to `127.0.0.1:8047` and accepts only the exact `REACHY_JEV_ALLOWED_ORIGIN` (default `http://127.0.0.1:5173`). Enter the relay URL and token in the app; the token is retained only in the current page. Do not put `TYPESAFE_API_KEY` in Vite variables, the browser, or a Hugging Face Space secret exposed to static JavaScript.
@@ -66,7 +68,7 @@ Only the introduction, pick, and reveal templates go to this service. Player sta
 
 The player gives three statements. Each statement gets text-only Jev cues and a deterministic weighted meter; no vocal stress or biometric signal is used. The breakdown shows each model score, normalized weight, and contribution to the composite. This is a theatrical game score, **not a calibrated probability of lying**. The final Jev question asks for exactly one of the three statements and a model-selected top cue; the UI labels that cue as a model judgment, not factual evidence. By default, confidence of at least 0.70 gets a confident motion, 0.40–0.70 a hedge, and below 0.40 a coin-flip motion. The host can adjust weights and thresholds; changes apply to the next judgment and only these numeric settings are saved locally. The player then reveals the actual lie. An optional nickname records the robot-fooled count in local storage; leave it blank for a tab-only game. Saved scores can be cleared in the app. Neither statements nor the relay token are stored with them.
 
-For a clip, obtain consent from everyone visible and check the per-round recording box before starting. The app draws the robot camera and meter into a browser canvas, records video only, stops within 30 seconds, and offers a local download after the reveal. It uses MP4 where the browser supports it and WebM otherwise. The clip stays in memory and is discarded on a new round or when leaving; no clip is uploaded by this app. The overlay intentionally contains no statement text.
+For a clip, obtain consent from everyone visible and check the per-round recording box before starting. The app draws the robot camera and meter into a browser canvas, records video only, stops within 30 seconds or at a 16 MB encoded-data cap, and offers a local download after the reveal. It prefers MP4 where the browser can initialize that encoder and falls back to WebM otherwise. The clip stays in memory and is discarded on a new round or when leaving; no clip is uploaded by this app. The overlay intentionally contains no statement text.
 
 ## Round traces and calibration
 
