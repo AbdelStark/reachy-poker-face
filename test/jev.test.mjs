@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeDelivery, askLive, askFinal, liveState, finalQuestions, finalState } from "../dist/index.js";
+import { analyzeDelivery, askLive, askFinal, liveState, finalQuestions, finalState } from "../lib/index.js";
 
 const delivery = analyzeDelivery([
   { word: "I", startMs: 0, endMs: 100 },
@@ -19,8 +19,8 @@ test("live question bank uses the actual SDK wire shape", async () => {
   let request;
   const client = { systemOne: async (input) => {
     request = input;
-    return { answers: {
-      lie_now: { noul: 0.6 }, implausible: { noul: 0.2 }, hedged: { noul: 0.1 }, too_specific: { noul: 0.3 }, generic: { noul: 0.0 },
+    return { model: "jev-test", answers: {
+      lie_now: { type: "noul", noul: 0.6 }, implausible: { type: "noul", noul: 0.2 }, hedged: { type: "noul", noul: 0.1 }, too_specific: { type: "noul", noul: 0.3 }, generic: { type: "noul", noul: 0.0 },
     } };
   } };
   const cues = await askLive(client, captured, []);
@@ -33,7 +33,7 @@ test("live question bank uses the actual SDK wire shape", async () => {
 
 test("final request asks one three-way Choice and rejects malformed picks", async () => {
   const client = { systemOne: async () => ({ model: "jev-test", answers: {
-    the_lie: { choice: "s2", confidence: 0.65 }, top_cue: { choice: "implausibility" }, contradiction: { noul: 0.1 },
+    the_lie: { type: "choice", choice: "s2", confidence: 0.65 }, top_cue: { type: "choice", choice: "implausibility" }, contradiction: { type: "noul", noul: 0.1 },
   } }) };
   assert.deepEqual(finalQuestions.the_lie.criteria, { s1: null, s2: null, s3: null });
   assert.equal(finalState(statements).statements.length, 3);
@@ -41,6 +41,6 @@ test("final request asks one three-way Choice and rejects malformed picks", asyn
   assert.equal(result.choice, "s2");
   assert.equal(result.confidence, 0.65);
   await assert.rejects(() => askFinal({ systemOne: async () => ({ model: "bad", answers: {
-    the_lie: { choice: "s4", confidence: 0.9 }, top_cue: { choice: "none" }, contradiction: { noul: 0 },
+    the_lie: { type: "choice", choice: "s4", confidence: 0.9 }, top_cue: { type: "choice", choice: "none" }, contradiction: { type: "noul", noul: 0 },
   } }) }, statements), TypeError);
 });

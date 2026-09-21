@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeDelivery, liveSuspicion, commitStyle, Round } from "../dist/index.js";
+import { analyzeDelivery, liveSuspicion, commitStyle, Round } from "../lib/index.js";
 
 const cues = { lie_now: 0.6, implausible: 0.2, hedged: 0.5, too_specific: 0.1 };
 

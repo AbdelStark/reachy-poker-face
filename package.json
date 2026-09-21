@@ -6,8 +6,15 @@
   "private": true,
   "license": "MIT",
   "engines": { "node": ">=20" },
-  "scripts": { "build": "tsc -p tsconfig.json", "check": "tsc -p tsconfig.json --noEmit", "test": "npm run build && node --test test/*.test.mjs" },
-  "dependencies": { "@typesafe-ai/sdk": "0.6.0" },
-  "devDependencies": { "typescript": "^5.9.0" },
+  "scripts": {
+    "build": "vite build",
+    "build:core": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "vite --host 127.0.0.1",
+    "relay": "node server/main.mjs",
+    "test": "npm run build:core && node --test test/*.test.mjs"
+  },
+  "dependencies": { "@typesafe-ai/sdk": "0.6.0", "@pollen-robotics/reachy-mini-sdk": "1.8.0", "reachy-jev": "file:../reachy-jev" },
+  "devDependencies": { "typescript": "^5.9.0", "vite": "^7.1.0" },
   "repository": { "type": "git", "url": "https://github.com/AbdelStark/reachy-poker-face.git" }
 }

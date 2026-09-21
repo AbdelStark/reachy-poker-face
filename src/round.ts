@@ -3,7 +3,7 @@ import { commitStyle, type CueProbabilities, liveSuspicion } from "./cues.js";
 export type Phase = "idle" | "intro" | "capture" | "react" | "think" | "commit" | "reveal" | "score";
 export type StatementId = "s1" | "s2" | "s3";
 export interface Statement { id: StatementId; text: string; delivery: readonly string[]; pLie: number }
-export interface Pick { choice: StatementId; confidence: number; style: ReturnType<typeof commitStyle> }
+export interface Pick { choice: StatementId; confidence: number; style: ReturnType<typeof commitStyle>; source: "jev" | "fallback" }
 export interface RoundSnapshot { phase: Phase; statementNumber: number; statements: readonly Statement[]; pick?: Pick; actualLie?: StatementId; correct?: boolean }
 
 /** Pure game transitions. Speech, model calls, robot motion and persistence belong to adapters. */
@@ -34,7 +34,14 @@ export class Round {
   commit(choice: StatementId, confidence: number): Pick {
     this.require("think");
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid pick");
-    this.pick_ = { choice, confidence, style: commitStyle(confidence) };
+    this.pick_ = { choice, confidence, style: commitStyle(confidence), source: "jev" };
+    this.phase_ = "commit";
+    return this.pick_;
+  }
+  commitUnavailable(choice: StatementId): Pick {
+    this.require("think");
+    if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid fallback pick");
+    this.pick_ = { choice, confidence: 0, style: "coin_flip", source: "fallback" };
     this.phase_ = "commit";
     return this.pick_;
   }

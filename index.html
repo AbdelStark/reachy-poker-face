@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Reachy Poker Face</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <script>
+      (() => {
+        const theme = new URLSearchParams(location.search).get("theme");
+        document.documentElement.dataset.theme = theme === "light" || theme === "dark"
+          ? theme : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        const clientId = "__OAUTH_CLIENT_ID__";
+        if (!clientId.startsWith("__")) {
+          window.huggingface = { variables: {
+            OAUTH_CLIENT_ID: clientId,
+            OAUTH_SCOPES: "__OAUTH_SCOPES__",
+            SPACE_HOST: "__SPACE_HOST__",
+            SPACE_ID: "__SPACE_ID__",
+          } };
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/dispatch.ts"></script>
+  </body>
+</html>
