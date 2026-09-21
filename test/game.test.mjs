@@ -57,3 +57,34 @@ test("round enforces sequence and text-free export", () => {
   round.reset();
   assert.equal(round.snapshot.phase, "idle");
 });
+
+test("round results and snapshots cannot mutate the active game's evidence", () => {
+  const round = new Round();
+  round.start();
+  round.introDone();
+  const submitted = round.submit("I once ran a marathon", ["steady"], cues);
+  submitted.text = "changed after submission";
+  submitted.delivery.push("changed");
+  assert.equal(round.snapshot.statements[0].text, "I once ran a marathon");
+  assert.deepEqual(round.snapshot.statements[0].delivery, ["steady"]);
+
+  const snapshot = round.snapshot;
+  snapshot.statements[0].text = "changed through snapshot";
+  snapshot.statements[0].delivery.push("changed");
+  const exported = round.export({ keepText: true });
+  exported.statements[0].text = "changed through export";
+  assert.equal(round.snapshot.statements[0].text, "I once ran a marathon");
+  assert.deepEqual(round.snapshot.statements[0].delivery, ["steady"]);
+
+  for (const text of ["I once met a dragon", "I once grew a tomato"]) {
+    round.reactionDone();
+    round.submit(text, [], cues);
+  }
+  round.reactionDone();
+  const pick = round.commit("s2", 0.8);
+  pick.choice = "s1";
+  round.snapshot.pick.choice = "s3";
+  assert.equal(round.snapshot.pick.choice, "s2");
+  round.commitDone();
+  assert.equal(round.reveal("s2"), true);
+});

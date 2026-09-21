@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Return defensive round snapshots, submitted statements, picks, and exports; isolate stored traces from caller-owned add results so later mutation cannot rewrite a JSONL record or insert text after a text-free round. This is not tamper-evident provenance.
 - Restrict the local Jev relay to the reviewed live/final question-bank wires and bounded, game-shaped round states; cap authenticated POST attempts at 30 per minute before any model call. Synthetic relay and full-round browser tests cover the contract, not billed usage.
 - Add an opt-in, no-credential offline fixture round in browser preview with fixed text-independent answers and conspicuous provenance; disable relay, audio, clips, ranking, and calibration trace for that route. Unit and browser tests check the separation from Jev-backed rounds.
 - Retry a failed final Jev pick once before an explicit unranked random fallback, with reset/abort fencing and a possible-second-call warning; a failed live cue leaves the statement open and requests neutral motion if armed. Real-relay and fake-robot tests cover software behavior, not model cost or physical motion.

@@ -84,7 +84,9 @@ export class SessionTrace {
       actualLie: snapshot.actualLie,
       correct: pick.choice === snapshot.actualLie,
     };
-    this.records = [...this.records, record].slice(-100);
+    // The returned record is caller-owned; it must not mutate stored evidence
+    // or add unconsented text to a later JSONL export.
+    this.records = [...this.records, structuredClone(record)].slice(-100);
     return record;
   }
 

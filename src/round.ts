@@ -13,7 +13,7 @@ export class Round {
   private pick_: Pick | undefined;
   private actualLie_: StatementId | undefined;
   get snapshot(): RoundSnapshot {
-    return { phase: this.phase_, statementNumber: Math.min(3, this.statements_.length + 1), statements: [...this.statements_], ...(this.pick_ ? { pick: this.pick_ } : {}), ...(this.actualLie_ ? { actualLie: this.actualLie_, correct: this.actualLie_ === this.pick_?.choice } : {}) };
+    return { phase: this.phase_, statementNumber: Math.min(3, this.statements_.length + 1), statements: this.statements_.map((statement) => ({ ...statement, delivery: [...statement.delivery] })), ...(this.pick_ ? { pick: { ...this.pick_ } } : {}), ...(this.actualLie_ ? { actualLie: this.actualLie_, correct: this.actualLie_ === this.pick_?.choice } : {}) };
   }
   start(): void { this.require("idle"); this.phase_ = "intro"; }
   introDone(): void { this.require("intro"); this.phase_ = "capture"; }
@@ -25,7 +25,7 @@ export class Round {
     const statement = { id, text: clean, delivery: [...delivery], pLie: liveSuspicion(cues, weights) };
     this.statements_.push(statement);
     this.phase_ = "react";
-    return statement;
+    return { ...statement, delivery: [...statement.delivery] };
   }
   reactionDone(): void {
     this.require("react");
@@ -36,21 +36,21 @@ export class Round {
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid pick");
     this.pick_ = { choice, confidence, style: commitStyle(confidence, thresholds), source: "jev" };
     this.phase_ = "commit";
-    return this.pick_;
+    return { ...this.pick_ };
   }
   commitFixture(choice: StatementId, confidence: number, thresholds?: CommitThresholds): Pick {
     this.require("think");
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid fixture pick");
     this.pick_ = { choice, confidence, style: commitStyle(confidence, thresholds), source: "fixture" };
     this.phase_ = "commit";
-    return this.pick_;
+    return { ...this.pick_ };
   }
   commitUnavailable(choice: StatementId): Pick {
     this.require("think");
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid fallback pick");
     this.pick_ = { choice, confidence: 0, style: "coin_flip", source: "fallback" };
     this.phase_ = "commit";
-    return this.pick_;
+    return { ...this.pick_ };
   }
   commitDone(): void { this.require("commit"); this.phase_ = "reveal"; }
   reveal(actualLie: StatementId): boolean {
@@ -63,7 +63,8 @@ export class Round {
   reset(): void { this.phase_ = "idle"; this.statements_ = []; this.pick_ = undefined; this.actualLie_ = undefined; }
   /** Export without identifying or statement text by default. */
   export(options: { keepText?: boolean } = {}): object {
-    return { ...this.snapshot, statements: this.statements_.map((statement) => options.keepText ? statement : { id: statement.id, delivery: statement.delivery, pLie: statement.pLie }) };
+    const snapshot = this.snapshot;
+    return { ...snapshot, statements: snapshot.statements.map((statement) => options.keepText ? statement : { id: statement.id, delivery: statement.delivery, pLie: statement.pLie }) };
   }
   private require(phase: Phase): void { if (this.phase_ !== phase) throw new Error(`expected ${phase}, got ${this.phase_}`); }
 }

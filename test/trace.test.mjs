@@ -39,6 +39,19 @@ test("session trace is text-free by default and keeps model provenance", () => {
   assert.deepEqual(JSON.parse(jsonl).statements[0].cues, cues);
 });
 
+test("mutating an add result cannot change stored or text-free trace evidence", () => {
+  const recorder = new SessionTrace();
+  const record = recorder.add(completedRound().snapshot, live, final, DEFAULT_THRESHOLDS);
+  const before = recorder.toJSONL();
+  record.statements[0].text = "private words added after recording";
+  record.statements[0].cues.lie_now = 0;
+  record.statements[0].weights.lie_now = 0;
+  record.pick.choice = "s1";
+  record.pick.thresholds.hedge = 0;
+  assert.equal(recorder.toJSONL(), before);
+  assert.equal(recorder.toJSONL().includes("private words"), false);
+});
+
 test("text needs explicit per-round consent; fallback stays distinguishable", () => {
   const recorder = new SessionTrace();
   recorder.add(completedRound().snapshot, live, final, DEFAULT_THRESHOLDS, true);
