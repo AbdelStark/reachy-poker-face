@@ -6,7 +6,7 @@
   "private": true,
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
   },
   "scripts": {
     "build": "vite build",
@@ -20,7 +20,7 @@
   "dependencies": {
     "@pollen-robotics/reachy-mini-sdk": "1.8.0",
     "@typesafe-ai/sdk": "0.6.0",
-    "reachy-jev": "file:../reachy-jev"
+    "reachy-jev": "git+https://github.com/AbdelStark/reachy-jev.git#a12da2c10a9a491c26c3d053511f37da6e928ed4"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

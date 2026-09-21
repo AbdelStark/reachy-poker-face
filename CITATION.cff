@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use Reachy Poker Face in research or an application, cite this software repository."
+title: "Reachy Poker Face: Probability-driven game for Reachy Mini"
+type: software
+authors:
+  - name: "AbdelStark"
+repository-code: "https://github.com/AbdelStark/reachy-poker-face"
+license: MIT
+version: 0.0.1

@@ -22,7 +22,7 @@ This is a development preview, not a hardware-tested release. The UI and core te
 
 ## Run locally
 
-Node.js 20+ and a sibling checkout of `reachy-jev` are currently required because this preview uses a local `file:../reachy-jev` dependency. That dependency must become independently installable before public release.
+Node.js 20.19+ is required. `reachy-jev` is installed from a pinned commit of its [public source repository](https://github.com/AbdelStark/reachy-jev); no sibling checkout or registry release is required. npm runs that package's `prepare` build during installation. Review the pinned source when updating the dependency.
 
 ```sh
 npm ci
@@ -47,4 +47,4 @@ For a clip, obtain consent from everyone visible and check the per-round recordi
 
 Typing works in the development UI. The optional microphone button uses the browser's SpeechRecognition implementation, which may send audio to a browser vendor. It is not connected to the robot's microphone or a word-timed transcription pipeline. The hosted Reachy shell currently does not grant iframe microphone access, so speech input there is unverified and may be unavailable; type a statement instead. Spoken reactions use browser-local speech synthesis, not Reachy's speaker. The app does not record or export audio.
 
-See [SECURITY.md](SECURITY.md) for deployment and privacy boundaries.
+See [SECURITY.md](SECURITY.md) for deployment and privacy boundaries, plus [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [CITATION.cff](CITATION.cff) for project maintenance and citation.
