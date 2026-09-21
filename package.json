@@ -1,0 +1,12 @@
+{
+  "name": "reachy-poker-face",
+  "version": "0.0.1",
+  "description": "Probability-driven two-truths-and-a-lie game for Reachy Mini",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": { "build": "tsc -p tsconfig.json", "check": "tsc -p tsconfig.json --noEmit", "test": "npm run build && node --test test/*.test.mjs" },
+  "devDependencies": { "typescript": "^5.9.0" },
+  "repository": { "type": "git", "url": "https://github.com/AbdelStark/reachy-poker-face.git" }
+}
