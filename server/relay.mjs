@@ -1,8 +1,58 @@
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 const MAX_BODY = 32 * 1024;
 const MAX_INFLIGHT = 4;
+const MAX_PER_MINUTE = 30;
+// Update these only after reviewing a versioned question-bank change. The
+// browser's wire snapshot test checks that both digests still match its banks.
+const QUESTION_HASHES = Object.freeze({
+  "pokerface.live@0.1.0": "4e363afc25f733404cca7c9c1a4196fa0f376fc4cf5f3a38e7739acd49a602bb",
+  "pokerface.final@0.1.0": "30d79abdcd16d20e1e41fba64ab561750466561487085929984a92c745ff5ca5",
+});
+const DELIVERY = new Set(["steady", "hesitant", "trailing off", "self-corrected", "fast, no pauses"]);
+const LENGTHS = new Set(["short", "medium", "long"]);
+const GAME = "two truths and a lie";
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys(value, keys) {
+  return record(value) && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
+}
+function text(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 400 && value === value.trim();
+}
+function delivery(value) {
+  return Array.isArray(value) && value.length <= 3 && value.every((item) => DELIVERY.has(item));
+}
+function statement(value, id, mode) {
+  if (!record(value)) return false;
+  const keys = mode === "live" ? ["id", "text", "length"] : ["id", "text"];
+  return exactKeys(value, Object.hasOwn(value, "delivery") ? [...keys, "delivery"] : keys)
+    && value.id === id && text(value.text)
+    && (mode !== "live" || LENGTHS.has(value.length))
+    && (!Object.hasOwn(value, "delivery") || delivery(value.delivery));
+}
+function validState(state) {
+  if (!record(state) || state.game !== GAME) return false;
+  if (state.bank === "pokerface.live@0.1.0") {
+    if (!exactKeys(state, ["bank", "game", "statement", "earlier_statements"])) return false;
+    const id = state.statement?.id;
+    const position = ["s1", "s2", "s3"].indexOf(id);
+    return position >= 0 && statement(state.statement, id, "live")
+      && Array.isArray(state.earlier_statements)
+      && state.earlier_statements.length === position
+      && state.earlier_statements.every((item, index) => statement(item, `s${index + 1}`, "earlier"));
+  }
+  if (state.bank === "pokerface.final@0.1.0") {
+    return exactKeys(state, ["bank", "game", "statements"])
+      && Array.isArray(state.statements) && state.statements.length === 3
+      && state.statements.every((item, index) => statement(item, `s${index + 1}`, "final"));
+  }
+  return false;
+}
 function validBearer(header, token) {
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
   const supplied = Buffer.from(header.slice(7));
@@ -19,19 +69,20 @@ function send(response, status, body, origin) {
   response.end(JSON.stringify(body));
 }
 function validRequest(body) {
-  return body && typeof body === "object" && !Array.isArray(body)
-    && body.state !== null && body.state !== undefined
-    && body.questions && typeof body.questions === "object" && !Array.isArray(body.questions)
-    && Object.keys(body.questions).length > 0 && Object.keys(body.questions).length <= 24
-    && Object.values(body.questions).every((q) => q && typeof q === "object" && ["noul", "choice", "score"].includes(q.type));
+  if (!exactKeys(body, ["state", "questions"]) || !validState(body.state) || !record(body.questions)) return false;
+  const expected = QUESTION_HASHES[body.state.bank];
+  return createHash("sha256").update(JSON.stringify(body.questions)).digest("hex") === expected;
 }
 
 /** A deliberately narrow authenticated proxy; it never logs request state or API keys. */
-export function createRelayServer({ token, allowedOrigin, ask }) {
+export function createRelayServer({ token, allowedOrigin, ask, now = () => performance.now() }) {
   if (typeof token !== "string" || token.length < 32) throw new TypeError("relay token must have at least 32 characters");
   if (typeof allowedOrigin !== "string" || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError("invalid allowed origin");
   if (typeof ask !== "function") throw new TypeError("ask function required");
+  if (typeof now !== "function") throw new TypeError("clock function required");
   let inflight = 0;
+  let windowStart = now();
+  let calls = 0;
   return createServer(async (request, response) => {
     const origin = request.headers.origin === allowedOrigin ? allowedOrigin : undefined;
     if (request.headers.origin && !origin) return send(response, 403, { error: "origin_forbidden" });
@@ -50,7 +101,11 @@ export function createRelayServer({ token, allowedOrigin, ask }) {
     if (request.method !== "POST") return send(response, 405, { error: "method_not_allowed" }, origin);
     if (!validBearer(request.headers.authorization, token)) return send(response, 401, { error: "unauthorized" }, origin);
     if (!request.headers["content-type"]?.startsWith("application/json")) return send(response, 415, { error: "json_required" }, origin);
+    const current = now();
+    if (current - windowStart >= 60_000) { windowStart = current; calls = 0; }
+    if (calls >= MAX_PER_MINUTE) return send(response, 429, { error: "rate_limited" }, origin);
     if (inflight >= MAX_INFLIGHT) return send(response, 429, { error: "busy" }, origin);
+    calls++;
     inflight++;
     try {
       let size = 0;
