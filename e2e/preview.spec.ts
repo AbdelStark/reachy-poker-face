@@ -232,6 +232,47 @@ test("explicit robot-speaker mode sends only a game line and reset requests canc
   expect(requests).toBe(2);
 });
 
+test("robot-speaker pick uses the fixed final cue line, never player statements", async ({ page }) => {
+  await mockRelay(page);
+  const spoken: string[] = [];
+  const wav = fixtureWav();
+  await page.route("http://127.0.0.1:8050/v1/tts", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "audio/wav",
+      "Content-Length": String(wav.length),
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    spoken.push(route.request().postDataJSON().text);
+    return route.fulfill({ status: 200, headers, body: wav });
+  });
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const robot = {
+      subscribePose() {}, unsubscribePose() {}, gotoTarget() { return true; },
+      addEventListener() {}, removeEventListener() {},
+      uploadAudio: async () => "fixture-upload",
+      playUploadedAudio: async () => ({ started: true }),
+      cancelAudio: () => true,
+    };
+    const { mountApp } = await import("/src/embed.ts");
+    mountApp(robot as never, { attachVideo: () => () => {} } as never);
+  });
+  await page.locator("#tts-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Configure local TTS" }).click();
+  await page.locator("#tts-robot").check();
+  await playThreeStatements(page);
+  await expect(page.locator("#verdict")).toContainText("Jev found the story a stretch");
+  await expect.poll(() => spoken.length).toBe(2);
+  expect(spoken[1]).toContain("Jev found the story a stretch");
+  expect(spoken[1]).toContain("game guess, not proof");
+  expect(spoken.join(" ")).not.toContain("climbed a mountain");
+  expect(spoken.join(" ")).not.toContain("met a dragon");
+  expect(spoken.join(" ")).not.toContain("grew a tomato");
+});
+
 test("preview fits a narrow phone viewport without horizontal scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockRelay(page);

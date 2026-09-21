@@ -7,3 +7,4 @@ export * from "./antenna.js";
 export * from "./settings.js";
 export * from "./leaderboard.js";
 export * from "./trace.js";
+export * from "./dialogue.js";

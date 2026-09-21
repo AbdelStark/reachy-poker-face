@@ -14,6 +14,7 @@ import { analyzeDelivery, type DeliveryAnalysis } from "./cues.js";
 import { LocalAsrPort } from "./asr.js";
 import { RobotStatementRecorder } from "./robot_audio.js";
 import { LocalTtsPort, RobotSpeechOutput } from "./tts.js";
+import { commitSpeech } from "./dialogue.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -438,7 +439,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
           } else showGameMotion(pick.style === "confident" ? 0.85 : 0.5);
         }
         if (version !== roundVersion) return;
-        const words = pick.source === "fallback" ? `Jev is unavailable. Random pick: number ${pick.choice.slice(1)}.` : pick.style === "confident" ? `Number ${pick.choice.slice(1)}. That's my pick.` : pick.style === "hedge" ? `I'd say number ${pick.choice.slice(1)}, but you're good.` : `Honestly? Coin flip. Number ${pick.choice.slice(1)}.`;
+        const words = commitSpeech(pick, finalEvidence);
         q<HTMLElement>("#verdict").textContent = words;
         finalCue.hidden = pick.source !== "jev";
         finalCue.textContent = pick.source === "jev" && finalEvidence

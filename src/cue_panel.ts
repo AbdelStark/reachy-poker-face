@@ -25,17 +25,22 @@ export function cueBreakdown(cues: CueProbabilities, weights: CueWeights): CueRo
   });
 }
 
-const FINAL_CUES: Record<string, string> = {
-  hedging: "hedging",
-  implausibility: "implausibility",
-  over_detail: "over-detail",
-  vagueness: "vagueness",
-  contradiction: "a possible contradiction",
-  none: "no single cue",
+const FINAL_CUES: Record<string, { label: string; speech: string }> = {
+  hedging: { label: "hedging", speech: "Jev flagged hedging in the wording." },
+  implausibility: { label: "implausibility", speech: "Jev found the story a stretch." },
+  over_detail: { label: "over-detail", speech: "Jev noticed extra detail." },
+  vagueness: { label: "vagueness", speech: "Jev found the story vague." },
+  contradiction: { label: "a possible contradiction", speech: "Jev flagged a possible contradiction." },
+  none: { label: "no single cue", speech: "No single cue stood out." },
 };
 
 export function finalCueLabel(value: string): string {
-  const label = FINAL_CUES[value];
-  if (!label) throw new TypeError("unknown final cue");
-  return label;
+  const cue = FINAL_CUES[value];
+  if (!cue) throw new TypeError("unknown final cue");
+  return cue.label;
+}
+
+/** Return only a fixed line; never put a model-supplied label into speech. */
+export function finalCueSpeech(value: string): string | undefined {
+  return Object.hasOwn(FINAL_CUES, value) ? FINAL_CUES[value]!.speech : undefined;
 }

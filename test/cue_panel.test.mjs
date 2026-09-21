@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cueBreakdown, finalCueLabel } from "../lib/cue_panel.js";
+import { cueBreakdown, finalCueLabel, finalCueSpeech } from "../lib/cue_panel.js";
 import { liveSuspicion } from "../lib/cues.js";
 
 test("displayed cue contributions reproduce the actual weighted meter", () => {
@@ -17,5 +17,7 @@ test("bad cue vectors cannot be presented as valid explanations", () => {
   const weights = { lie_now: 0.5, implausible: 0.2, hedged: 0.2, too_specific: 0.1 };
   assert.throws(() => cueBreakdown({ lie_now: Number.NaN, implausible: 0, hedged: 0, too_specific: 0 }, weights), RangeError);
   assert.equal(finalCueLabel("none"), "no single cue");
+  assert.equal(finalCueSpeech("none"), "No single cue stood out.");
+  assert.equal(finalCueSpeech("model_invented_a_reason"), undefined);
   assert.throws(() => finalCueLabel("model_invented_a_reason"), TypeError);
 });
