@@ -81,6 +81,79 @@ async function attachSyntheticVideo(page: Page) {
   });
 }
 
+test("new round cancels a pending judgment and ignores its late answer", async ({ page }) => {
+  let firstStarted = false;
+  let releaseFirst: (() => void) | undefined;
+  const seen: string[] = [];
+  await page.route("http://127.0.0.1:8047/v1/systemone", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "application/json",
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    const request = route.request().postDataJSON();
+    seen.push(request.state.statement.text);
+    if (seen.length === 1) {
+      firstStarted = true;
+      await new Promise<void>((resolve) => { releaseFirst = resolve; });
+    }
+    const answers = Object.fromEntries(Object.keys(request.questions).map((key) => [key, { type: "noul", noul: 0.2 }]));
+    try { await route.fulfill({ status: 200, headers, body: JSON.stringify({ model: "fixture", answers }) }); }
+    catch { /* Reset aborts the first browser request before its fixture reply. */ }
+  });
+  await page.goto("/?preview=1");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.locator("#statement").fill("First round pending statement");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect.poll(() => firstStarted).toBe(true);
+  await expect(page.getByRole("button", { name: "New round" })).toBeEnabled();
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.locator("#statement").fill("Second round accepted statement");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#statements li")).toHaveCount(1);
+  await expect(page.locator("#statements li")).toContainText(["Second round accepted statement"]);
+  releaseFirst?.();
+  await page.waitForTimeout(150);
+  expect(seen).toEqual(["First round pending statement", "Second round accepted statement"]);
+  await expect(page.locator("#statements li")).toContainText(["Second round accepted statement"]);
+  await expect(page.locator("#phase")).toHaveText("Statement 2 of 3");
+});
+
+test("new round ignores a late browser-recognition callback", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition {
+      continuous = false;
+      interimResults = true;
+      lang = "";
+      onresult: ((event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      start() { (window as unknown as { fakeRecognition: FakeRecognition }).fakeRecognition = this; }
+      stop() { this.onend?.(); }
+    }
+    (window as unknown as { SpeechRecognition: typeof FakeRecognition }).SpeechRecognition = FakeRecognition;
+  });
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.getByRole("button", { name: "Use browser microphone" }).click();
+  const oldHandler = await page.evaluateHandle(() => (window as unknown as { fakeRecognition: { onresult: unknown } }).fakeRecognition.onresult);
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.evaluate((handler) => {
+    (handler as (event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void)({ results: [{ isFinal: true, 0: { transcript: "Old round should not return" } }] });
+  }, oldHandler);
+  await expect(page.locator("#statement")).toHaveValue("");
+  await expect(page.locator("#statements li")).toHaveCount(0);
+});
+
 test("connected game keeps motion and antenna-tap start off until session arm", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");

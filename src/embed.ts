@@ -128,6 +128,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   catch { leaderboard = []; }
   let disclaimerSpoken = false;
   let relay: JevPort | undefined;
+  let jevAbort: AbortController | undefined;
   let busy = false;
   let rounds = 0;
   let wins = 0;
@@ -137,6 +138,18 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let clipStopTimer: ReturnType<typeof setTimeout> | undefined;
   let recognition: Recognition | null = null;
   let micActive = false;
+  function cancelBrowserRecognition() {
+    const previous = recognition;
+    recognition = null;
+    micActive = false;
+    if (previous) {
+      previous.onresult = null;
+      previous.onerror = null;
+      previous.onend = null;
+      try { previous.stop(); }
+      catch { /* An already-ended recognizer cannot block reset or consent cleanup. */ }
+    }
+  }
   let localAsr: LocalAsrPort | undefined;
   let robotSpeech: RobotSpeechOutput | undefined;
   let speechVersion = 0;
@@ -275,7 +288,6 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>(".capture").hidden = !capture;
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
     q<HTMLButtonElement>("#submit").disabled = !capture || busy || asrBusy || Boolean(robotCapture);
-    q<HTMLButtonElement>("#reset").disabled = busy;
     traceTextConsent.disabled = snapshot.phase !== "idle";
     q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !createRecognition();
     q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop browser microphone" : "Use browser microphone";
@@ -366,7 +378,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!stream?.getAudioTracks().some((track: MediaStreamTrack) => track.readyState === "live")) return announce("Robot audio track is unavailable.", true);
     const version = roundVersion;
     cancelGameSpeech();
-    recognition?.stop();
+    cancelBrowserRecognition();
     clearTimeout(silenceTimer);
     statement.value = "";
     pendingDelivery = undefined;
@@ -395,17 +407,19 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (text.split(/\s+/).length < 4) return announce("Use at least four words for each statement.", true);
     busy = true;
     const version = roundVersion;
+    const currentRelay = relay;
+    const controller = new AbortController();
+    jevAbort = controller;
     const motionVersion = motionEpoch;
     const liveSettings = settings;
     const delivery = pendingDelivery;
     clearTimeout(silenceTimer);
-    recognition?.stop();
-    micActive = false;
+    cancelBrowserRecognition();
     render();
     try {
       const id = `s${round.snapshot.statementNumber}` as StatementId;
       const earlier = round.snapshot.statements.map((s) => ({ id: s.id, text: s.text }));
-      const cues = await askLive(relay, { id, text, ...(delivery ? { delivery } : {}) }, earlier);
+      const cues = await askLive(currentRelay, { id, text, ...(delivery ? { delivery } : {}) }, earlier, controller.signal);
       if (version !== roundVersion) return;
       const recorded = round.submit(text, delivery?.delivery ?? [], cues, liveSettings.weights);
       pendingDelivery = undefined;
@@ -424,7 +438,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         let pick;
         try {
           const finalSettings = settings;
-          const final = await askFinal(relay, round.snapshot.statements);
+          const final = await askFinal(currentRelay, round.snapshot.statements, controller.signal);
           if (version !== roundVersion) return;
           pick = round.commit(final.choice, final.confidence, finalSettings.thresholds);
           finalEvidence = final;
@@ -457,10 +471,10 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         round.commitDone();
       } else if (motionVersion === motionEpoch) neutralAfterReaction();
     } catch {
-      announce("Jev did not return a usable cue answer. The statement was not locked; try again.", true);
+      if (version === roundVersion) announce("Jev did not return a usable cue answer. The statement was not locked; try again.", true);
     } finally {
-      busy = false;
-      render();
+      if (jevAbort === controller) jevAbort = undefined;
+      if (version === roundVersion) { busy = false; render(); }
     }
   }
   function startRound() {
@@ -501,8 +515,10 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     render();
   }
   function resetRound() {
-    if (busy) return;
     roundVersion++;
+    jevAbort?.abort();
+    jevAbort = undefined;
+    busy = false;
     cancelRobotAudio();
     cancelGameSpeech();
     asrConsent.checked = false;
@@ -515,7 +531,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     discardClip();
     clipStatus.textContent = hadClip ? "Previous clip discarded." : "No clip recording requested.";
     clearTimeout(silenceTimer);
-    recognition?.stop();
+    cancelBrowserRecognition();
     round = new Round();
     statement.value = "";
     meter(0);
@@ -707,10 +723,13 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (micActive) { recognition?.stop(); return; }
     recognition = createRecognition();
     if (!recognition) return announce("This browser has no SpeechRecognition. Type the statement instead.", true);
+    const currentRecognition = recognition;
+    const version = roundVersion;
     recognition.lang = "en-US";
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
+      if (version !== roundVersion || recognition !== currentRecognition || round.snapshot.phase !== "capture" || busy || asrBusy) return;
       pendingDelivery = undefined;
       const parts = Array.from(event.results);
       statement.value = parts.map((part) => part[0].transcript).join(" ").slice(0, 400);
@@ -719,8 +738,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         silenceTimer = setTimeout(() => void submitStatement(), 1500);
       }
     };
-    recognition.onerror = () => announce("Microphone transcription failed. Type the statement instead.", true);
-    recognition.onend = () => { micActive = false; render(); };
+    recognition.onerror = () => { if (version === roundVersion && recognition === currentRecognition) announce("Microphone transcription failed. Type the statement instead.", true); };
+    recognition.onend = () => { if (version === roundVersion && recognition === currentRecognition) { micActive = false; render(); } };
     try { recognition.start(); micActive = true; render(); }
     catch { announce("Microphone permission was denied or is unavailable.", true); }
   });
@@ -738,6 +757,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   render();
   return () => {
     roundVersion++;
+    jevAbort?.abort();
+    jevAbort = undefined;
     motionEpoch++;
     if (motionEnabled) commandNeutral();
     motionEnabled = false;
@@ -746,7 +767,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     sessionTrace.clear();
     discardClip();
     clearTimeout(silenceTimer);
-    recognition?.stop();
+    cancelBrowserRecognition();
     robot?.removeEventListener("state", onState);
     robot?.unsubscribePose();
     cleanupVideo?.();

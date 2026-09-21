@@ -12,16 +12,26 @@ export class RelayPort implements JevPort {
     if (token.length < 32) throw new TypeError("relay token must be at least 32 characters");
     this.endpoint = new URL("/v1/systemone", url);
   }
-  async systemOne(request: { state: EntryType; questions: Questions }): Promise<JevReply> {
-    const response = await this.fetcher.call(globalThis, this.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!response.ok) throw new Error(`Jev relay returned HTTP ${response.status}`);
-    const data: unknown = await response.json();
-    if (!data || typeof data !== "object" || !("model" in data) || !("answers" in data) || typeof data.model !== "string" || !data.answers || typeof data.answers !== "object") throw new TypeError("invalid Jev relay response");
-    return data as JevReply;
+  async systemOne(request: { state: EntryType; questions: Questions }, signal?: AbortSignal): Promise<JevReply> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7_000);
+    const onAbort = () => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) controller.abort();
+    try {
+      const response = await this.fetcher.call(globalThis, this.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Jev relay returned HTTP ${response.status}`);
+      const data: unknown = await response.json();
+      if (!data || typeof data !== "object" || !("model" in data) || !("answers" in data) || typeof data.model !== "string" || !data.answers || typeof data.answers !== "object") throw new TypeError("invalid Jev relay response");
+      return data as JevReply;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 }

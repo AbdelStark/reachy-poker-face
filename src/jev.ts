@@ -7,7 +7,7 @@ export const FINAL_BANK = "pokerface.final@0.1.0";
 
 export interface JevAnswer { type: "noul" | "choice"; noul?: number; choice?: string; confidence?: number }
 export interface JevReply { model: string; answers: Record<string, JevAnswer> }
-export interface JevPort { systemOne(request: { state: EntryType; questions: Questions }): Promise<JevReply> }
+export interface JevPort { systemOne(request: { state: EntryType; questions: Questions }, signal?: AbortSignal): Promise<JevReply> }
 function answer(reply: JevReply, key: string, type: JevAnswer["type"]): JevAnswer {
   const value = reply.answers[key];
   if (!value || value.type !== type) throw new TypeError(`wrong or missing Jev answer: ${key}`);
@@ -45,8 +45,8 @@ export const liveQuestions = {
   generic: { type: "noul", instructions: "Is the statement so generic it could apply to almost anyone?" },
 } as const;
 
-export async function askLive(client: JevPort, current: CapturedStatement, earlier: readonly CapturedStatement[]): Promise<CueProbabilities> {
-  const response = await client.systemOne({ state: liveState(current, earlier), questions: liveQuestions });
+export async function askLive(client: JevPort, current: CapturedStatement, earlier: readonly CapturedStatement[], signal?: AbortSignal): Promise<CueProbabilities> {
+  const response = await client.systemOne({ state: liveState(current, earlier), questions: liveQuestions }, signal);
   const cues = {
     lie_now: probability(answer(response, "lie_now", "noul").noul),
     implausible: probability(answer(response, "implausible", "noul").noul),
@@ -70,8 +70,8 @@ export const finalQuestions = {
   top_cue: { type: "choice", instructions: "Which single cue most influenced that pick? Choose none if no cue stands out.", criteria: { hedging: null, implausibility: null, over_detail: null, vagueness: null, contradiction: null, none: null } },
 } as const;
 export interface FinalJudgment { choice: StatementId; confidence: number; topCue: string; contradiction: number; model: string }
-export async function askFinal(client: JevPort, statements: readonly Statement[]): Promise<FinalJudgment> {
-  const response = await client.systemOne({ state: finalState(statements), questions: finalQuestions });
+export async function askFinal(client: JevPort, statements: readonly Statement[], signal?: AbortSignal): Promise<FinalJudgment> {
+  const response = await client.systemOne({ state: finalState(statements), questions: finalQuestions }, signal);
   const theLie = answer(response, "the_lie", "choice");
   const topCue = answer(response, "top_cue", "choice");
   const contradiction = answer(response, "contradiction", "noul");

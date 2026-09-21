@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allow immediate round reset during a pending Jev call; abort the browser request, fence late answers and recognition callbacks, and let a new round proceed without waiting for the old result. Offline browser tests cover both races.
 - Report the strictly above-0.70 final-pick subset with count, coverage, accuracy, and Wilson interval per model; reject duplicate JSON keys and fallback records with impossible model evidence. Synthetic calculations only, no performance claim.
 - Add an immediate in-round stop-and-discard control for consented local clips, plus deletion of a finished clip before download; the game continues and the browser test covers both states.
 - Speak the final Jev cue through a bounded fixed template that labels it a game guess, not proof; fallback picks remain explicitly random and never speak a model cue or player statement. Share one cue vocabulary between visible and spoken explanations and cover the robot-speaker request in a fake-host browser test.
