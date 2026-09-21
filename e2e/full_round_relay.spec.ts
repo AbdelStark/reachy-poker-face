@@ -5,14 +5,16 @@ import { createRelayServer } from "../server/relay.mjs";
 const TOKEN = "f".repeat(40);
 const ORIGIN = "http://127.0.0.1:5173";
 
-test("a synthetic full round crosses the authenticated loopback relay and exports a consistent trace", async ({ page }) => {
+test("a synthetic full round retries one failed final relay call and exports a consistent trace", async ({ page }) => {
   const requests: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+  let finalAttempts = 0;
   const server = createRelayServer({
     token: TOKEN,
     allowedOrigin: ORIGIN,
     ask: async (state: Record<string, unknown>, questions: Record<string, unknown>) => {
       requests.push({ state, questions });
       if ("the_lie" in questions) {
+        if (++finalAttempts === 1) throw new Error("synthetic transient final failure");
         return { model: "synthetic-relay", answers: {
           contradiction: { type: "noul", noul: 0.1 },
           the_lie: { type: "choice", choice: "s2", confidence: 0.81 },
@@ -45,15 +47,18 @@ test("a synthetic full round crosses the authenticated loopback relay and export
       await expect(page.locator("#statements li")).toHaveCount(index + 1);
     }
     await expect(page.locator("#reveal")).toBeVisible();
+    await expect(page.locator("#status")).toContainText("received on retry");
     await expect(page.locator("#verdict")).toContainText("Number 2");
     await expect(page.locator("#verdict")).toContainText("game guess, not proof");
     await expect(page.locator("#final-cue")).toContainText("implausibility");
-    expect(requests).toHaveLength(4);
+    expect(requests).toHaveLength(5);
+    expect(finalAttempts).toBe(2);
     expect(requests.map(({ state }) => state.bank)).toEqual([
-      "pokerface.live@0.1.0", "pokerface.live@0.1.0", "pokerface.live@0.1.0", "pokerface.final@0.1.0",
+      "pokerface.live@0.1.0", "pokerface.live@0.1.0", "pokerface.live@0.1.0",
+      "pokerface.final@0.1.0", "pokerface.final@0.1.0",
     ]);
     expect(requests.slice(0, 3).map(({ questions }) => Object.keys(questions).length)).toEqual([5, 5, 5]);
-    expect(Object.keys(requests[3]!.questions)).toHaveLength(4);
+    expect(requests.slice(3).map(({ questions }) => Object.keys(questions).length)).toEqual([4, 4]);
     expect(JSON.stringify(requests)).not.toContain(TOKEN);
 
     await page.locator("#reveal button[data-lie='s2']").click();

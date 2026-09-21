@@ -1,6 +1,6 @@
 import { connectToHost } from "@pollen-robotics/reachy-mini-sdk/host/embed";
 import { AntennaTap } from "./antenna.js";
-import { askFinal, askLive, type FinalJudgment, type JevPort } from "./jev.js";
+import { askFinalWithRetry, askLive, type FinalJudgment, type JevPort } from "./jev.js";
 import { performCoinFlip, showSuspicion, toSdkTarget } from "./motion.js";
 import { RelayPort } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
@@ -480,18 +480,24 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         await new Promise((resolve) => setTimeout(resolve, 500));
         if (version !== roundVersion) return;
         let pick;
+        let retriedFinal = false;
         try {
           const finalSettings = settings;
-          const final = await askFinal(currentRelay, round.snapshot.statements, controller.signal);
+          const final = await askFinalWithRetry(currentRelay, round.snapshot.statements, controller.signal, () => {
+            retriedFinal = true;
+            if (version === roundVersion) announce("Final Jev pick unavailable; retrying once. A second model call may be billed.");
+          });
           if (version !== roundVersion) return;
           pick = round.commit(final.choice, final.confidence, finalSettings.thresholds);
           finalEvidence = final;
           finalThresholds = { ...finalSettings.thresholds };
+          if (retriedFinal) announce("Final Jev pick received on retry. A second model call may have been billed.");
         } catch {
           if (version !== roundVersion) return;
           pick = round.commitUnavailable(randomPick());
           finalEvidence = undefined;
           finalThresholds = undefined;
+          announce("Final Jev pick unavailable after two attempts; using an unranked random pick.", true);
         }
         if (motionVersion === motionEpoch && motionEnabled) {
           if (pick.style === "coin_flip") {
@@ -515,7 +521,10 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         round.commitDone();
       } else if (motionVersion === motionEpoch) neutralAfterReaction();
     } catch {
-      if (version === roundVersion) announce("Jev did not return a usable cue answer. The statement was not locked; try again.", true);
+      if (version === roundVersion) {
+        if (motionVersion === motionEpoch && motionEnabled) commandNeutral(0.5);
+        announce("Jev did not return a usable cue answer. The statement was not locked; try again.", true);
+      }
     } finally {
       if (jevAbort === controller) jevAbort = undefined;
       if (version === roundVersion) { busy = false; render(); }

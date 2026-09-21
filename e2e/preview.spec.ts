@@ -25,7 +25,8 @@ function fixtureWav(): Buffer {
   return bytes;
 }
 
-async function mockRelay(page: Page, failFinal = false) {
+async function mockRelay(page: Page, failFinal = false, failLiveAt = 0) {
+  let liveCalls = 0;
   await page.route("http://127.0.0.1:8047/v1/systemone", async (route) => {
     const headers = {
       "Access-Control-Allow-Origin": ORIGIN,
@@ -44,6 +45,7 @@ async function mockRelay(page: Page, failFinal = false) {
         top_cue: { type: "choice", choice: "implausibility", confidence: 0.8 },
       } }) });
     }
+    if (++liveCalls === failLiveAt) return route.fulfill({ status: 503, headers, body: JSON.stringify({ error: "judgment_unavailable" }) });
     const answers = Object.fromEntries(Object.keys(request.questions).map((key) => [key, { type: "noul", noul: key === "lie_now" ? 0.6 : 0.2 }]));
     return route.fulfill({ status: 200, headers, body: JSON.stringify({ model: "fixture", answers }) });
   });
@@ -283,6 +285,41 @@ test("connected game keeps motion and antenna-tap start off until session arm", 
   const countBeforeLeave = await commands();
   await page.evaluate(() => (window as unknown as { fakeMotion: { cleanup: () => void } }).fakeMotion.cleanup());
   expect(await commands()).toBe(countBeforeLeave);
+});
+
+test("a failed live cue keeps the statement open and requests neutral motion", async ({ page }) => {
+  await mockRelay(page, false, 2);
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const commands: Array<{ antennas?: number[] }> = [];
+    const robot = {
+      state: "streaming",
+      subscribePose() {}, unsubscribePose() {}, addEventListener() {}, removeEventListener() {},
+      gotoTarget(target: { antennas?: number[] }) { commands.push(target); return true; },
+    };
+    const { mountApp } = await import("/src/embed.ts");
+    mountApp(robot as never, { attachVideo: () => () => {} } as never);
+    (window as unknown as { failedLiveCommands: typeof commands }).failedLiveCommands = commands;
+  });
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.locator("#motion-enable").check();
+  await startRound(page);
+  await page.locator("#statement").fill("I once climbed a mountain");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#statements li")).toHaveCount(1);
+  await page.waitForTimeout(750); // Let the successful reaction's own neutral timer finish.
+  const meterBeforeFailure = await page.locator("#meter-value").textContent();
+  const beforeFailure = await page.evaluate(() => (window as unknown as { failedLiveCommands: unknown[] }).failedLiveCommands.length);
+  await page.locator("#statement").fill("I once met a dragon");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#phase")).toHaveText("Statement 2 of 3");
+  await expect(page.locator("#statements li")).toHaveCount(1);
+  await expect(page.locator("#meter-value")).toHaveText(meterBeforeFailure ?? "");
+  await expect(page.locator("#status")).toContainText("statement was not locked");
+  const commands = await page.evaluate(() => (window as unknown as { failedLiveCommands: Array<{ antennas?: number[] }> }).failedLiveCommands);
+  expect(commands).toHaveLength(beforeFailure + 1);
+  expect(commands.at(-1)?.antennas).toEqual([0, 0]);
 });
 
 test("a rejected game pose disarms motion without losing the text round", async ({ page }) => {

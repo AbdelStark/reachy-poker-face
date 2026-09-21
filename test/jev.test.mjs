@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { analyzeDelivery, askLive, askFinal, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
+import { analyzeDelivery, askLive, askFinal, askFinalWithRetry, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
 
 const delivery = analyzeDelivery([
   { word: "I", startMs: 0, endMs: 100 },
@@ -59,4 +59,40 @@ test("final request asks for a game pick and model style suggestion", async () =
   await assert.rejects(() => askFinal({ systemOne: async () => ({ model: "bad", answers: {
     the_lie: { type: "choice", choice: "s2", confidence: 0.9 }, commit_style: { type: "choice", choice: "PRIVATE_UNTRUSTED_TEXT" }, top_cue: { type: "choice", choice: "none" }, contradiction: { type: "noul", noul: 0 },
   } }) }, statements), TypeError);
+});
+
+test("final retry makes at most two calls and reports a successful second answer", async () => {
+  let calls = 0;
+  let retries = 0;
+  const client = { systemOne: async () => {
+    if (++calls === 1) throw new Error("temporary relay failure");
+    return { model: "second-answer", answers: {
+      the_lie: { type: "choice", choice: "s2", confidence: 0.65 },
+      commit_style: { type: "choice", choice: "hedge" },
+      top_cue: { type: "choice", choice: "implausibility" },
+      contradiction: { type: "noul", noul: 0.1 },
+    } };
+  } };
+  const result = await askFinalWithRetry(client, statements, undefined, () => { retries++; });
+  assert.equal(result.model, "second-answer");
+  assert.equal(calls, 2);
+  assert.equal(retries, 1);
+  await assert.rejects(() => askFinalWithRetry({ systemOne: async () => { calls++; throw new Error("offline"); } }, statements), /offline/);
+  assert.equal(calls, 4);
+});
+
+test("final retry does not start a second call after reset abort", async () => {
+  const abort = new AbortController();
+  let calls = 0;
+  let retries = 0;
+  const client = { systemOne: async () => {
+    calls++;
+    abort.abort(new Error("new round"));
+    throw new Error("late relay failure");
+  } };
+  await assert.rejects(() => askFinalWithRetry(client, statements, abort.signal, () => { retries++; }), /late relay failure/);
+  assert.equal(calls, 1);
+  assert.equal(retries, 0);
+  await assert.rejects(() => askFinalWithRetry(client, statements, abort.signal), /new round/);
+  assert.equal(calls, 1);
 });

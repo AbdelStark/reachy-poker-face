@@ -112,3 +112,24 @@ export async function askFinal(client: JevPort, statements: readonly Statement[]
     model: response.model,
   };
 }
+
+/** One bounded final-pick retry; a reset/abort never starts another model call. */
+export async function askFinalWithRetry(
+  client: JevPort,
+  statements: readonly Statement[],
+  signal?: AbortSignal,
+  onRetry?: () => void,
+): Promise<FinalJudgment> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw signal.reason ?? new Error("final judgment aborted");
+    try {
+      const judgment = await askFinal(client, statements, signal);
+      if (signal?.aborted) throw signal.reason ?? new Error("final judgment aborted");
+      return judgment;
+    } catch (error) {
+      if (signal?.aborted || attempt === 1) throw error;
+      onRetry?.();
+    }
+  }
+  throw new Error("final judgment unavailable");
+}
