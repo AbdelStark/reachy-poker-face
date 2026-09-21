@@ -221,3 +221,130 @@ test("statement text enters a trace only with per-round consent", async ({ page 
   expect(jsonl).toContain("I once climbed a mountain");
   expect(jsonl).not.toContain("nickname");
 });
+
+test("synthetic robot stream yields bounded PCM and word-timed delivery without audio output", async ({ page }) => {
+  await page.goto("/?preview=1");
+  const result = await page.evaluate(async () => {
+    const { RobotStatementRecorder } = await import("/src/robot_audio.ts");
+    const { LocalAsrPort } = await import("/src/asr.ts");
+    const { analyzeDelivery } = await import("/src/cues.ts");
+    const source = new AudioContext();
+    const oscillator = source.createOscillator();
+    const destination = source.createMediaStreamDestination();
+    oscillator.connect(destination); // No browser speaker connection.
+    oscillator.start();
+    await source.resume();
+    const recorder = new RobotStatementRecorder(destination.stream, () => {});
+    try {
+      await recorder.start();
+      for (let i = 0; i < 60 && (recorder as unknown as { sampleCount: number }).sampleCount < source.sampleRate * 0.3; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const pcm = await recorder.stop();
+      const view = new DataView(pcm.buffer);
+      let peak = 0;
+      for (let i = 0; i < Math.min(pcm.length / 4, 1000); i++) peak = Math.max(peak, Math.abs(view.getFloat32(i * 4, true)));
+      let requestBytes = 0;
+      const fetcher = async (_url: URL, init: RequestInit) => {
+        requestBytes = (init.body as ArrayBuffer).byteLength;
+        return { ok: true, json: async () => ({ text: "I paused here today", words: [
+          { word: "I", startMs: 0, endMs: 30 },
+          { word: "paused", startMs: 40, endMs: 100 },
+          { word: "here", startMs: 110, endMs: 160 },
+          { word: "today", startMs: 170, endMs: 220 },
+        ] }) } as Response;
+      };
+      const asr = new LocalAsrPort("http://127.0.0.1:8049", "t".repeat(32), fetcher as typeof fetch);
+      const transcript = await asr.transcribe(pcm);
+      pcm.fill(0);
+      return { requestBytes, peak, text: transcript.text, delivery: analyzeDelivery(transcript.words).delivery };
+    } finally {
+      await recorder.discard();
+      oscillator.stop();
+      await source.close();
+    }
+  });
+  expect(result.requestBytes).toBeGreaterThan(16_000);
+  expect(result.requestBytes).toBeLessThanOrEqual(16_000 * 15 * 4);
+  expect(result.peak).toBeGreaterThan(0.001);
+  expect(result.text).toBe("I paused here today");
+  expect(result.delivery.length).toBeGreaterThan(0);
+});
+
+test("robot-audio consent and timed ASR feed the statement Jev state", async ({ page }) => {
+  const states: Record<string, unknown>[] = [];
+  await mockRelay(page);
+  page.on("request", (request) => {
+    if (request.url() === "http://127.0.0.1:8047/v1/systemone" && request.method() === "POST") {
+      states.push(request.postDataJSON().state as Record<string, unknown>);
+    }
+  });
+  let asrCalls = 0;
+  await page.route("http://127.0.0.1:8049/v1/asr", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "application/json",
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    asrCalls++;
+    expect(route.request().postDataBuffer()!.length).toBeGreaterThan(16_000);
+    return route.fulfill({ status: 200, headers, body: JSON.stringify({ text: "I once paused here", words: [
+      { word: "I", startMs: 0, endMs: 100 },
+      { word: "once", startMs: 140, endMs: 250 },
+      { word: "paused", startMs: 800, endMs: 1000 },
+      { word: "here", startMs: 1080, endMs: 1200 },
+    ] }) });
+  });
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const source = new AudioContext();
+    const oscillator = source.createOscillator();
+    const destination = source.createMediaStreamDestination();
+    oscillator.connect(destination);
+    oscillator.start();
+    await source.resume();
+    const { mountApp } = await import("/src/embed.ts");
+    const robot = {
+      state: "streaming", subscribePose() {}, unsubscribePose() {}, gotoTarget() { return true; },
+      addEventListener() {}, removeEventListener() {},
+    };
+    const media = { robotStream: destination.stream, attachVideo() { return () => {}; } };
+    const cleanup = mountApp(robot as never, media as never);
+    (window as unknown as { fakeRobotCleanup: () => Promise<void> }).fakeRobotCleanup = async () => {
+      cleanup(); oscillator.stop(); await source.close();
+    };
+  });
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.locator("#asr-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Configure local ASR" }).click();
+  await page.getByRole("button", { name: "Record robot microphone" }).click();
+  await expect(page.locator("#status")).toContainText("consent");
+  expect(asrCalls).toBe(0);
+  await page.locator("#asr-consent").check();
+  await page.getByRole("button", { name: "Record robot microphone" }).click();
+  await expect(page.locator("#asr-status")).toContainText("Recording Reachy's microphone");
+  await page.locator("#asr-consent").uncheck();
+  await expect(page.locator("#asr-status")).toContainText("consent cleared");
+  expect(asrCalls).toBe(0);
+  await page.locator("#asr-consent").check();
+  await page.getByRole("button", { name: "Record robot microphone" }).click();
+  await expect(page.locator("#asr-status")).toContainText("Recording Reachy's microphone");
+  await page.waitForTimeout(1400);
+  await page.getByRole("button", { name: "Stop & transcribe" }).click();
+  await expect(page.locator("#statement")).toHaveValue("I once paused here");
+  await expect(page.locator("#asr-status")).toContainText("4 timed words");
+  expect(asrCalls).toBe(1);
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#statements li")).toHaveCount(1);
+  const live = states.find((state) => state.bank === "pokerface.live@0.1.0");
+  expect((live?.statement as { delivery?: string[] }).delivery).toContain("hesitant");
+  expect(Object.keys(live?.statement as Record<string, unknown>).sort()).toEqual(["delivery", "id", "length", "text"]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(overflow).toBe(false);
+  await page.evaluate(() => (window as unknown as { fakeRobotCleanup: () => Promise<void> }).fakeRobotCleanup());
+});

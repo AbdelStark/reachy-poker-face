@@ -10,6 +10,9 @@ import { ClipRecorder, type ClipFile } from "./clip.js";
 import { SessionTrace, type LiveEvidence } from "./trace.js";
 import type { CommitThresholds } from "./cues.js";
 import { cueBreakdown, finalCueLabel } from "./cue_panel.js";
+import { analyzeDelivery, type DeliveryAnalysis } from "./cues.js";
+import { LocalAsrPort } from "./asr.js";
+import { RobotStatementRecorder } from "./robot_audio.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -48,7 +51,7 @@ function createRecognition(): Recognition | null {
   return Ctor ? new Ctor() : null;
 }
 
-function mountApp(robot?: Robot, media?: RobotMedia) {
+export function mountApp(robot?: Robot, media?: RobotMedia) {
   root!.innerHTML = `
     <main class="app">
       <header class="masthead"><div class="brand"><span class="brand-icon">🃏</span><div><p class="eyebrow">Reachy Mini game</p><h1>Poker Face</h1></div></div><div id="connection" class="connection"></div></header>
@@ -62,7 +65,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
-          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Microphone mode uses your browser's speech service, which may process audio off-device. No audio is recorded by this app. Antenna tap works only while the antennas are neutral.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
+          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap works only while the antennas are neutral.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
           <div class="card"><div class="section-heading"><span class="step">05</span><h2>Session trace</h2></div><p class="small">Completed rounds stay in this tab only. Export JSONL to inspect picks and calibration later. Statement text is excluded by default; neither nickname nor video is included.</p><label class="clip-consent"><input id="trace-text-consent" type="checkbox" /><span>Include the next round's statement text in the trace export. Ask the player first.</span></label><button id="download-trace" class="secondary" type="button" disabled>Download trace JSONL</button><button id="clear-trace" class="text-button" type="button" disabled>Discard session trace</button><p id="trace-status" class="status" aria-live="polite">No completed rounds in this session.</p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -95,6 +98,11 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   const clearTraceButton = q<HTMLButtonElement>("#clear-trace");
   const downloadClipButton = q<HTMLButtonElement>("#download-clip");
   const statement = q<HTMLTextAreaElement>("#statement");
+  const asrForm = q<HTMLFormElement>("#asr-form");
+  const asrToken = q<HTMLInputElement>("#asr-token");
+  const asrConsent = q<HTMLInputElement>("#asr-consent");
+  const asrStatus = q<HTMLElement>("#asr-status");
+  const robotMicButton = q<HTMLButtonElement>("#robot-mic");
   const video = q<HTMLVideoElement>("#robot-video");
   let round = new Round();
   const sessionTrace = new SessionTrace();
@@ -120,6 +128,11 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   let clipStopTimer: ReturnType<typeof setTimeout> | undefined;
   let recognition: Recognition | null = null;
   let micActive = false;
+  let localAsr: LocalAsrPort | undefined;
+  let robotCapture: RobotStatementRecorder | undefined;
+  let asrAbort: AbortController | undefined;
+  let asrBusy = false;
+  let pendingDelivery: DeliveryAnalysis | undefined;
   let silenceTimer: ReturnType<typeof setTimeout> | undefined;
   let neutralReadyAt = 0;
   const taps = new AntennaTap();
@@ -192,11 +205,13 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLButtonElement>("#start").hidden = snapshot.phase !== "idle";
     q<HTMLElement>(".capture").hidden = !capture;
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
-    q<HTMLButtonElement>("#submit").disabled = !capture || busy;
+    q<HTMLButtonElement>("#submit").disabled = !capture || busy || asrBusy || Boolean(robotCapture);
     q<HTMLButtonElement>("#reset").disabled = busy;
     traceTextConsent.disabled = snapshot.phase !== "idle";
-    q<HTMLButtonElement>("#mic").disabled = !capture || busy || !createRecognition();
-    q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop microphone" : "Use microphone";
+    q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !createRecognition();
+    q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop browser microphone" : "Use browser microphone";
+    robotMicButton.disabled = !robot || !capture || busy || asrBusy;
+    robotMicButton.textContent = robotCapture ? "Stop & transcribe" : "Record robot microphone";
     const list = q<HTMLOListElement>("#statements");
     list.replaceChildren(...snapshot.statements.map((entry) => {
       const item = document.createElement("li");
@@ -236,14 +251,82 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     }, 650);
   }
   function isThinking(): boolean { return round.snapshot.phase === "think"; }
+  function cancelRobotAudio() {
+    asrAbort?.abort();
+    asrAbort = undefined;
+    asrBusy = false;
+    if (robotCapture) void robotCapture.discard();
+    robotCapture = undefined;
+    pendingDelivery = undefined;
+  }
+  async function finishRobotCapture() {
+    const capture = robotCapture;
+    if (!capture || asrBusy) return;
+    const version = roundVersion;
+    robotCapture = undefined;
+    asrBusy = true;
+    asrStatus.textContent = "Transcribing locally; audio is not sent to Jev.";
+    render();
+    let pcm: Uint8Array | undefined;
+    try {
+      pcm = await capture.stop();
+      if (version !== roundVersion || !localAsr) return;
+      const abort = new AbortController();
+      asrAbort = abort;
+      const result = await localAsr.transcribe(pcm, abort.signal);
+      if (version !== roundVersion || abort.signal.aborted || !asrConsent.checked || round.snapshot.phase !== "capture") return;
+      statement.value = result.text;
+      pendingDelivery = result.words.length ? analyzeDelivery(result.words) : undefined;
+      asrStatus.textContent = result.text
+        ? `Local ASR returned ${result.words.length} timed words; review the text, then lock the statement.`
+        : "No speech was recognized. Try again or type the statement.";
+    } catch {
+      if (version === roundVersion) asrStatus.textContent = "Robot-audio capture or local ASR failed; no statement was submitted.";
+    } finally {
+      pcm?.fill(0);
+      if (version === roundVersion) { asrAbort = undefined; asrBusy = false; render(); }
+    }
+  }
+  async function toggleRobotCapture() {
+    if (robotCapture) return finishRobotCapture();
+    if (asrBusy || round.snapshot.phase !== "capture") return;
+    if (!asrConsent.checked) return announce("Check robot-audio consent for this round first.", true);
+    if (!localAsr) return announce("Configure the local ASR companion first.", true);
+    const stream = media?.robotStream;
+    if (!stream?.getAudioTracks().some((track: MediaStreamTrack) => track.readyState === "live")) return announce("Robot audio track is unavailable.", true);
+    const version = roundVersion;
+    speechSynthesis.cancel();
+    recognition?.stop();
+    clearTimeout(silenceTimer);
+    statement.value = "";
+    pendingDelivery = undefined;
+    const capture = new RobotStatementRecorder(stream, () => { void finishRobotCapture(); });
+    robotCapture = capture;
+    asrBusy = true;
+    asrStatus.textContent = "Starting robot microphone capture…";
+    render();
+    try {
+      await capture.start();
+      if (version !== roundVersion || robotCapture !== capture) { await capture.discard(); return; }
+      asrStatus.textContent = "Recording Reachy's microphone locally. Stop within 15 seconds to transcribe.";
+    } catch {
+      if (version === roundVersion) {
+        robotCapture = undefined;
+        asrStatus.textContent = "Robot audio capture could not start; nothing was sent.";
+      }
+    } finally {
+      if (version === roundVersion) { asrBusy = false; render(); }
+    }
+  }
   async function submitStatement() {
-    if (busy || round.snapshot.phase !== "capture") return;
+    if (busy || asrBusy || robotCapture || round.snapshot.phase !== "capture") return;
     if (!relay) return announce("Connect a Jev relay first.", true);
     const text = statement.value.trim();
     if (text.split(/\s+/).length < 4) return announce("Use at least four words for each statement.", true);
     busy = true;
     const version = roundVersion;
     const liveSettings = settings;
+    const delivery = pendingDelivery;
     clearTimeout(silenceTimer);
     recognition?.stop();
     micActive = false;
@@ -251,9 +334,10 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     try {
       const id = `s${round.snapshot.statementNumber}` as StatementId;
       const earlier = round.snapshot.statements.map((s) => ({ id: s.id, text: s.text }));
-      const cues = await askLive(relay, { id, text }, earlier);
+      const cues = await askLive(relay, { id, text, ...(delivery ? { delivery } : {}) }, earlier);
       if (version !== roundVersion) return;
-      const recorded = round.submit(text, [], cues, liveSettings.weights);
+      const recorded = round.submit(text, delivery?.delivery ?? [], cues, liveSettings.weights);
+      pendingDelivery = undefined;
       liveEvidence.push({ id, cues: { ...cues }, weights: { ...liveSettings.weights } });
       meter(recorded.pLie);
       showCues(cues, liveSettings.weights, id);
@@ -337,6 +421,9 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   function resetRound() {
     if (busy) return;
     roundVersion++;
+    cancelRobotAudio();
+    asrConsent.checked = false;
+    asrStatus.textContent = "Robot microphone off. No audio sent.";
     liveEvidence = [];
     finalEvidence = undefined;
     finalThresholds = undefined;
@@ -369,6 +456,31 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
       announce("Relay configured. Start a round.");
     } catch (error) {
       relayStatus.textContent = error instanceof Error ? error.message : "Invalid relay settings";
+    }
+  });
+  asrForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (robotCapture || asrBusy) return;
+    try {
+      localAsr = new LocalAsrPort(q<HTMLInputElement>("#asr-url").value, asrToken.value);
+      asrToken.value = "";
+      asrStatus.textContent = "Local ASR configured for this tab. No audio sent yet.";
+    } catch (error) {
+      asrStatus.textContent = error instanceof Error ? error.message : "Invalid local ASR settings.";
+    }
+  });
+  asrConsent.addEventListener("change", () => {
+    if (!asrConsent.checked) {
+      cancelRobotAudio();
+      asrStatus.textContent = "Robot-audio consent cleared; capture discarded or request aborted.";
+      render();
+    }
+  });
+  robotMicButton.addEventListener("click", () => { void toggleRobotCapture(); });
+  statement.addEventListener("input", () => {
+    if (pendingDelivery) {
+      pendingDelivery = undefined;
+      asrStatus.textContent = "Statement edited; word-timing delivery cues were cleared.";
     }
   });
   settingsForm.addEventListener("input", () => {
@@ -476,6 +588,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
+      pendingDelivery = undefined;
       const parts = Array.from(event.results);
       statement.value = parts.map((part) => part[0].transcript).join(" ").slice(0, 400);
       clearTimeout(silenceTimer);
@@ -502,6 +615,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   render();
   return () => {
     roundVersion++;
+    cancelRobotAudio();
     sessionTrace.clear();
     discardClip();
     clearTimeout(silenceTimer);

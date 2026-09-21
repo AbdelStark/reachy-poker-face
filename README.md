@@ -16,9 +16,9 @@ tags:
 
 A two-truths-and-a-lie game in which Reachy Mini shows uncertainty through its head and antennas. Jev judges *which story sounds most like the invented one in this game*. It does not detect lies or assess a person's honesty.
 
-The browser app has a Reachy Mini host shell, camera view, text capture, optional browser speech transcription, an expressive game-cue meter with a four-cue breakdown, configurable cue weights and commit thresholds, a final pick, an optional local nickname leaderboard, consent-gated silent clip capture, and a local round-trace export. A narrow server-side relay keeps the TypeSafe API key out of the browser. If Jev is unavailable at the final pick, the app says so and makes a random theatrical pick; that round is not ranked or counted as a Jev judgment.
+The browser app has a Reachy Mini host shell, camera view, text capture, optional browser speech transcription, an opt-in local robot-audio ASR path with word timing, an expressive game-cue meter with a four-cue breakdown, configurable cue weights and commit thresholds, a final pick, an optional local nickname leaderboard, consent-gated silent clip capture, and a local round-trace export. A narrow server-side relay keeps the TypeSafe API key out of the browser. If Jev is unavailable at the final pick, the app says so and makes a random theatrical pick; that round is not ranked or counted as a Jev judgment.
 
-This is a development preview, not a hardware-tested release. The UI and core tests run without a robot; a synthetic browser video-stream test covers local clip encoding, but actual robot-camera capture, antenna-tap behavior, motion, audio, and the host shell need a real Reachy Mini validation pass. Word-timed robot audio transcription and robot-speaker speech are not implemented yet. The calibration reader is tested on synthetic records only; no accuracy or live-robot result is claimed.
+This is a development preview, not a hardware-tested release. The UI and core tests run without a robot; synthetic browser streams cover local clip encoding and robot-audio PCM capture, but actual robot-camera capture, microphone quality, antenna-tap behavior, motion, and the host shell need a real Reachy Mini validation pass. The local ASR API is fake-model and installed-package tested, **not** tested for recognition quality or timing accuracy on a real model/robot. Robot-speaker speech is not implemented yet. The calibration reader is tested on synthetic records only; no accuracy or live-robot result is claimed.
 
 ## Run locally
 
@@ -39,6 +39,23 @@ For model-backed local play, set `TYPESAFE_API_KEY`, a random `REACHY_JEV_RELAY_
 
 For a hosted static Space, deploy the relay separately behind HTTPS with authentication, TLS, rate limits, and an allowlisted origin. The loopback relay is for local development and is not reachable from someone else's browser. The static Space metadata above follows the Reachy Mini JavaScript app-host format; it is not a claim that this app has been deployed to a Space.
 
+## Optional local robot-audio ASR
+
+This path uses the Reachy host's outbound audio track, **not** the device's browser microphone. Install the optional companion in its own environment, obtain a converted [faster-whisper](https://github.com/SYSTRAN/faster-whisper) model yourself, and review its license. The model directory must already contain `model.bin`, `config.json`, and `tokenizer.json`; the app does not download weights. Set a separate random `REACHY_ASR_TOKEN` of at least 32 characters in your local shell, then start the companion:
+
+```sh
+python3 -m venv .venv-asr
+.venv-asr/bin/python -m pip install -r requirements-asr.txt
+.venv-asr/bin/python scripts/check_asr_api.py
+.venv-asr/bin/python -m server.local_asr --model-path /absolute/path/to/converted-model
+```
+
+On Windows, use `.venv-asr\Scripts\python.exe` in place of `.venv-asr/bin/python`.
+
+It binds only to `127.0.0.1:8049` and permits exactly `http://127.0.0.1:5173` by default; use `--port` and `--origin` for another local browser origin. In the connected robot app, enter the companion URL and token, start a round, check the separate per-round audio-consent box after everyone audible agrees, then press **Record robot microphone** and **Stop & transcribe**. At most 15 seconds of mono 16 kHz PCM is sent to that loopback service. Its word times are converted in code into pause/filler/restart delivery buckets. Review or edit the returned statement before locking it; editing clears timing-derived delivery cues. The audio is not sent to Jev, saved to disk, or added to clips/traces. The resulting statement text and delivery buckets **are** sent to the configured Jev relay when you lock the statement. The browser and OS may retain transient copies despite the app clearing its buffers.
+
+The companion accepts only an exact origin, a separate bearer token, and 0.25–15 seconds of finite float32 PCM; it limits concurrent inference to one request and returns bounded word records. These are local-development controls, not a public ASR service. A hosted Space cannot reach the viewer's loopback companion; provide an explicitly chosen secured ASR provider and a fresh privacy review before hosted use. The synthetic tests prove ordering and format, not real ASR accuracy, latency, echo cancellation, or microphone availability.
+
 ## How a round works
 
 The player gives three statements. Each statement gets text-only Jev cues and a deterministic weighted meter; no vocal stress or biometric signal is used. The breakdown shows each model score, normalized weight, and contribution to the composite. This is a theatrical game score, **not a calibrated probability of lying**. The final Jev question asks for exactly one of the three statements and a model-selected top cue; the UI labels that cue as a model judgment, not factual evidence. By default, confidence of at least 0.70 gets a confident motion, 0.40–0.70 a hedge, and below 0.40 a coin-flip motion. The host can adjust weights and thresholds; changes apply to the next judgment and only these numeric settings are saved locally. The player then reveals the actual lie. An optional nickname records the robot-fooled count in local storage; leave it blank for a tab-only game. Saved scores can be cleared in the app. Neither statements nor the relay token are stored with them.
@@ -51,6 +68,6 @@ After a reveal, the app keeps a session-only JSONL record of the three cue vecto
 
 For a local descriptive report, run `npm run calibrate -- path/to/pokerface-trace.jsonl`. The Python standard-library reader validates the trace schema, separates model IDs, excludes fallback rounds, and reports final-pick accuracy with a Wilson interval, confidence bins, binary Brier score, and expected calibration error. `pLie` is a theatrical weighted cue composite, not a calibrated probability, and is **not** used for this report. Small or selected samples cannot establish game performance, much less lie-detection ability; the repository publishes no real evaluation result. The synthetic tests only verify the calculation and privacy-default export behavior.
 
-Typing works in the development UI. The optional microphone button uses the browser's SpeechRecognition implementation, which may send audio to a browser vendor. It is not connected to the robot's microphone or a word-timed transcription pipeline. The hosted Reachy shell currently does not grant iframe microphone access, so speech input there is unverified and may be unavailable; type a statement instead. Spoken reactions use browser-local speech synthesis, not Reachy's speaker. The app does not record or export audio.
+Typing works in the development UI. The separate **browser microphone** button uses the browser's SpeechRecognition implementation, which may send audio to a browser vendor; that path has no word timings. The hosted Reachy shell currently does not grant iframe device-microphone access, so browser speech input there is unverified and may be unavailable; type a statement instead. Spoken reactions use browser-local speech synthesis, not Reachy's speaker. Neither audio path adds audio to clips or trace exports.
 
 See [SECURITY.md](SECURITY.md) for deployment and privacy boundaries, plus [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [CITATION.cff](CITATION.cff) for project maintenance and citation.
