@@ -3,7 +3,7 @@ import { commitStyle, type CommitThresholds, type CueProbabilities, type CueWeig
 export type Phase = "idle" | "intro" | "capture" | "react" | "think" | "commit" | "reveal" | "score";
 export type StatementId = "s1" | "s2" | "s3";
 export interface Statement { id: StatementId; text: string; delivery: readonly string[]; pLie: number }
-export interface Pick { choice: StatementId; confidence: number; style: ReturnType<typeof commitStyle>; source: "jev" | "fallback" }
+export interface Pick { choice: StatementId; confidence: number; style: ReturnType<typeof commitStyle>; source: "jev" | "fallback" | "fixture" }
 export interface RoundSnapshot { phase: Phase; statementNumber: number; statements: readonly Statement[]; pick?: Pick; actualLie?: StatementId; correct?: boolean }
 
 /** Pure game transitions. Speech, model calls, robot motion and persistence belong to adapters. */
@@ -35,6 +35,13 @@ export class Round {
     this.require("think");
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid pick");
     this.pick_ = { choice, confidence, style: commitStyle(confidence, thresholds), source: "jev" };
+    this.phase_ = "commit";
+    return this.pick_;
+  }
+  commitFixture(choice: StatementId, confidence: number, thresholds?: CommitThresholds): Pick {
+    this.require("think");
+    if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid fixture pick");
+    this.pick_ = { choice, confidence, style: commitStyle(confidence, thresholds), source: "fixture" };
     this.phase_ = "commit";
     return this.pick_;
   }

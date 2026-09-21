@@ -41,10 +41,12 @@ export class SessionTrace {
     if (snapshot.phase !== "score" || !snapshot.pick || !snapshot.actualLie || snapshot.statements.length !== 3 || live.length !== 3) {
       throw new TypeError("trace requires a revealed three-statement round");
     }
-    if ((snapshot.pick.source === "jev") !== Boolean(final) || (snapshot.pick.source === "jev") !== Boolean(thresholds)) {
+    const pick = snapshot.pick;
+    if (pick.source === "fixture") throw new TypeError("offline fixture rounds are not calibration evidence");
+    if ((pick.source === "jev") !== Boolean(final) || (pick.source === "jev") !== Boolean(thresholds)) {
       throw new TypeError("final judgment provenance does not match pick");
     }
-    if (final && (final.choice !== snapshot.pick.choice || final.confidence !== snapshot.pick.confidence)) {
+    if (final && (final.choice !== pick.choice || final.confidence !== pick.confidence)) {
       throw new TypeError("final judgment does not match recorded pick");
     }
     const statements = snapshot.statements.map((statement, index) => {
@@ -62,7 +64,6 @@ export class SessionTrace {
         ...(keepText ? { text: statement.text } : {}),
       };
     });
-    const pick = snapshot.pick;
     const record: RoundTrace = {
       schema: TRACE_SCHEMA,
       statements,

@@ -89,6 +89,50 @@ async function attachSyntheticVideo(page: Page) {
   });
 }
 
+test("offline fixture completes a typed round without model calls, capture, ranking, or calibration export", async ({ page }) => {
+  const modelRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/v1\/(systemone|asr|tts)$/.test(new URL(request.url()).pathname)) modelRequests.push(request.url());
+  });
+  await page.goto("/?preview=1&fixture=1");
+  await page.evaluate(() => {
+    (window as unknown as { fixtureSpeechCalls: number }).fixtureSpeechCalls = 0;
+    window.speechSynthesis.speak = () => {
+      (window as unknown as { fixtureSpeechCalls: number }).fixtureSpeechCalls++;
+    };
+  });
+  await expect(page.locator(".fixture-banner")).toContainText("not Jev");
+  await expect(page.locator("#relay-form")).toBeHidden();
+  await expect(page.locator("#connection")).toContainText("Offline fixture");
+  await expect(page.locator("#clip-consent")).toBeDisabled();
+  await expect(page.locator("#nickname")).toBeDisabled();
+  await expect(page.locator("#browser-mic-consent")).toBeDisabled();
+  await page.locator("#start").click();
+  await expect(page.locator("#intro-gate")).toContainText("No audio is played");
+  await page.getByRole("button", { name: "Begin statement 1" }).click();
+  for (const [index, statement] of [
+    "I once climbed a mountain",
+    "I once met a dragon",
+    "I once grew a tomato",
+  ].entries()) {
+    await page.locator("#statement").fill(statement);
+    await page.getByRole("button", { name: "Lock statement" }).click();
+    await expect(page.locator("#statements li")).toHaveCount(index + 1);
+    await expect(page.locator("#cue-note")).toContainText("fixed synthetic values");
+  }
+  await expect(page.locator("#reveal")).toBeVisible();
+  await expect(page.locator("#verdict")).toContainText("Offline fixture pick");
+  await expect(page.locator("#final-cue")).toBeHidden();
+  await page.locator("#reveal button[data-lie='s2']").click();
+  await expect(page.locator("#score")).toContainText("1 offline fixture round");
+  await expect(page.locator("#trace-status")).toContainText("excluded from calibration");
+  await expect(page.locator("#download-trace")).toBeDisabled();
+  await expect(page.locator("#leaderboard-status")).toContainText("not ranked or saved");
+  expect(await page.evaluate(() => localStorage.getItem("reachy-poker-face.leaderboard.v1"))).toBeNull();
+  expect(await page.evaluate(() => (window as unknown as { fixtureSpeechCalls: number }).fixtureSpeechCalls)).toBe(0);
+  expect(modelRequests).toEqual([]);
+});
+
 test("opening line blocks capture and clip recording until the operator begins statement one", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");

@@ -8,6 +8,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 [hidden] { display: none !important; }
 .app { max-width: 1320px; margin: auto; padding: clamp(18px, 3vw, 42px); }
 .masthead { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
+.fixture-banner { margin: -12px 0 24px; padding: 14px 18px; border: 1px solid #a96f32; border-left: 5px solid #f4c95d; border-radius: 10px; background: #342719; color: #ffdf96; font-size: .86rem; font-weight: 700; line-height: 1.5; }
 .brand { display: flex; align-items: center; gap: 16px; }
 .brand-icon { display: grid; place-items: center; width: 58px; height: 58px; background: #20263a; border: 1px solid #424964; border-radius: 18px; font-size: 30px; }
 .eyebrow { color: #f4c95d; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; font-size: .7rem; margin: 0 0 2px; }
@@ -92,6 +93,7 @@ footer { margin-top: 34px; color: #8492aa; font-size: .72rem; text-align: center
 :root[data-theme="light"] .small, :root[data-theme="light"] .meter-note, :root[data-theme="light"] .score { color: #53647e; }
 :root[data-theme="light"] input, :root[data-theme="light"] textarea { color: #20283b; background: #fafbfe; border-color: #acb6c9; }
 :root[data-theme="light"] .statement-list li { color: #253047; background: #f3f5f9; }
+:root[data-theme="light"] .fixture-banner { background: #fff4d9; color: #65410d; border-color: #be873c; }
 @media (max-width: 890px) { .layout { grid-template-columns: minmax(0, 1fr); } .video-wrap { aspect-ratio: 16 / 9; } }
 @media (max-width: 540px) { .app { padding: 16px; } .masthead { margin-bottom: 20px; flex-wrap: wrap; } .brand-icon { width: 48px; height: 48px; } .connection { font-size: .72rem; } .card { padding: 18px; } .capture-actions { flex-direction: column; } .settings-grid,.robot-asr form,.robot-tts form { grid-template-columns: 1fr; } .cue-breakdown li { grid-template-columns: 1fr; } .cue-breakdown li span:nth-child(2) { text-align: left; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }

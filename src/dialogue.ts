@@ -5,13 +5,14 @@ import type { Pick } from "./round.js";
 import { finalCueSpeech } from "./cue_panel.js";
 const CHOICES = new Set<string>(["s1", "s2", "s3"]);
 const STYLES = new Set<string>(["confident", "hedge", "coin_flip"]);
-const SOURCES = new Set<string>(["jev", "fallback"]);
+const SOURCES = new Set<string>(["jev", "fallback", "fixture"]);
 
 /** Make the cue audible without presenting a model judgment as lie evidence. */
 export function commitSpeech(pick: Pick, final?: FinalJudgment): string {
   if (!CHOICES.has(pick.choice) || !STYLES.has(pick.style) || !SOURCES.has(pick.source)) throw new TypeError("invalid game pick");
   const number = pick.choice.slice(1);
   if (pick.source === "fallback") return `Jev is unavailable. Random pick: number ${number}.`;
+  if (pick.source === "fixture") return `Offline fixture pick: number ${number}. These fixed scores are not a Jev judgment or evidence of truth.`;
   const opening = pick.style === "confident"
     ? `Number ${number}. That's my pick.`
     : pick.style === "hedge"

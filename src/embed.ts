@@ -1,6 +1,7 @@
 import { connectToHost } from "@pollen-robotics/reachy-mini-sdk/host/embed";
 import { AntennaTap } from "./antenna.js";
-import { askFinalWithRetry, askLive, type FinalJudgment, type JevPort } from "./jev.js";
+import { askFinal, askFinalWithRetry, askLive, type FinalJudgment, type JevPort } from "./jev.js";
+import { OfflineFixturePort } from "./fixture.js";
 import { performCoinFlip, showSuspicion, toSdkTarget } from "./motion.js";
 import { RelayPort } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
@@ -67,6 +68,7 @@ function canShareClip(file: ClipFile): boolean {
 }
 
 export function mountApp(robot?: Robot, media?: RobotMedia) {
+  const fixtureMode = !robot && new URLSearchParams(location.search).get("fixture") === "1";
   root!.innerHTML = `
     <main class="app">
       <header class="masthead"><div class="brand"><span class="brand-icon">🃏</span><div><p class="eyebrow">Reachy Mini game</p><h1>Poker Face</h1></div></div><div id="connection" class="connection"></div></header>
@@ -99,7 +101,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   introGate.className = "intro-gate";
   introGate.hidden = true;
   const introNote = document.createElement("p");
-  introNote.textContent = "Wait until the opening line sounds finished before opening a microphone or recording the round. Robot playback completion is not acknowledged.";
+  introNote.textContent = fixtureMode
+    ? "No audio is played in the offline fixture. Continue to type statement 1."
+    : "Wait until the opening line sounds finished before opening a microphone or recording the round. Robot playback completion is not acknowledged.";
   const beginCaptureButton = document.createElement("button");
   beginCaptureButton.id = "begin-capture";
   beginCaptureButton.className = "secondary";
@@ -149,6 +153,29 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   const motionToggle = q<HTMLInputElement>("#motion-enable");
   const motionStatus = q<HTMLElement>("#motion-status");
   const video = q<HTMLVideoElement>("#robot-video");
+  if (fixtureMode) {
+    const banner = document.createElement("p");
+    banner.className = "fixture-banner";
+    banner.textContent = "OFFLINE FIXTURE · fixed synthetic answers, not Jev or a lie detector. No relay, microphone, robot, saved score, or calibration trace.";
+    q<HTMLElement>(".masthead").after(banner);
+    relayForm.hidden = true;
+    const relayHeading = relayForm.closest(".card")?.querySelector("h2");
+    if (relayHeading) relayHeading.textContent = "Offline fixture";
+    const relayDescription = relayForm.closest(".card")?.querySelector("p.small");
+    if (relayDescription) relayDescription.textContent = "This local demo returns fixed values by statement slot. It does not inspect your words or contact Jev.";
+    relayStatus.textContent = "Offline fixture active; no model request or relay connection.";
+    q<HTMLElement>("#video-fallback").textContent = "Offline fixture · no robot or camera";
+    q<HTMLElement>(".meter-note").textContent = "A weighted composite of fixed demo values, not a model judgment, lie probability, or truth signal.";
+    cueNote.textContent = "Lock a statement to see the fixed synthetic cue values and their weights.";
+    q<HTMLElement>("#verdict").textContent = "Three typed statements. One fixed offline pick. No truth judgment.";
+    q<HTMLElement>("footer").textContent = "Offline fixture: fixed numbers demonstrate the game mechanics. No Jev, robot, microphone, ranking, or calibration trace.";
+    q<HTMLInputElement>("#clip-consent").disabled = true;
+    browserMicConsent.disabled = true;
+    nickname.disabled = true;
+    traceTextConsent.disabled = true;
+    q<HTMLElement>("#clip-status").textContent = "No video clip in the offline fixture.";
+    q<HTMLElement>("#leaderboard-status").textContent = "Fixture rounds are not ranked or saved.";
+  }
   let round = new Round();
   const sessionTrace = new SessionTrace();
   let liveEvidence: LiveEvidence[] = [];
@@ -163,12 +190,13 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   try { leaderboard = parseLeaderboard(localStorage.getItem(LEADERBOARD_KEY)); }
   catch { leaderboard = []; }
   let disclaimerSpoken = false;
-  let relay: JevPort | undefined;
+  let relay: JevPort | undefined = fixtureMode ? new OfflineFixturePort() : undefined;
   let jevAbort: AbortController | undefined;
   let busy = false;
   let rounds = 0;
   let wins = 0;
   let fallbackRounds = 0;
+  let fixtureRounds = 0;
   let clipRecorder: ClipRecorder | undefined;
   let clipFile: ClipFile | undefined;
   let sharePending = false;
@@ -206,7 +234,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>("#video-fallback").hidden = true;
     robot.subscribePose();
   }
-  q<HTMLElement>("#connection").textContent = robot ? "Robot connected" : "UI preview";
+  q<HTMLElement>("#connection").textContent = robot ? "Robot connected" : fixtureMode ? "Offline fixture · no Jev" : "UI preview";
 
   const sliderIds = ["w-lie-now", "w-implausible", "w-hedged", "w-too-specific", "t-hedge", "t-confident"] as const;
   const outputIds = ["o-lie-now", "o-implausible", "o-hedged", "o-too-specific", "o-hedge", "o-confident"] as const;
@@ -250,11 +278,12 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   }
   function cancelGameSpeech() {
     speechVersion++;
-    speechSynthesis.cancel();
+    if (!fixtureMode) speechSynthesis.cancel();
     robotSpeech?.cancel();
   }
   async function speakGame(text: string) {
     const version = ++speechVersion;
+    if (fixtureMode) return;
     if (!ttsRobot.checked) {
       robotSpeech?.cancel();
       speakLocal(text);
@@ -304,6 +333,11 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   }
   function renderLeaderboard() {
     const list = q<HTMLOListElement>("#leaderboard");
+    if (fixtureMode) {
+      list.textContent = "Offline fixture rounds are not ranked.";
+      q<HTMLButtonElement>("#clear-leaderboard").disabled = true;
+      return;
+    }
     list.replaceChildren(...leaderboard.map((entry) => {
       const item = document.createElement("li");
       item.textContent = `${entry.name} · fooled Reachy ${entry.fooled}/${entry.rounds} rounds`;
@@ -314,6 +348,12 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   }
   function renderTrace() {
     traceStatus.classList.remove("error");
+    if (fixtureMode) {
+      downloadTraceButton.disabled = true;
+      clearTraceButton.disabled = true;
+      traceStatus.textContent = "Offline fixture rounds are excluded from calibration traces.";
+      return;
+    }
     downloadTraceButton.disabled = sessionTrace.count === 0;
     clearTraceButton.disabled = sessionTrace.count === 0;
     traceStatus.textContent = sessionTrace.count
@@ -323,17 +363,24 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   function render() {
     const snapshot = round.snapshot;
     const capture = snapshot.phase === "capture";
-    q<HTMLElement>("#phase").textContent = snapshot.phase === "idle" ? "Ready when you are." : snapshot.phase === "intro" ? "Opening line · wait until the speaker is quiet." : snapshot.phase === "reveal" ? "The robot has chosen. Reveal the lie." : snapshot.phase === "score" ? "Round complete." : snapshot.phase === "think" ? "Thinking…" : `Statement ${snapshot.statementNumber} of 3`;
+    let phaseLabel: string;
+    if (snapshot.phase === "idle") phaseLabel = "Ready when you are.";
+    else if (snapshot.phase === "intro") phaseLabel = fixtureMode ? "Offline fixture · no audio is played." : "Opening line · wait until the speaker is quiet.";
+    else if (snapshot.phase === "reveal") phaseLabel = fixtureMode ? "The fixed pick is ready. Reveal the lie." : "The robot has chosen. Reveal the lie.";
+    else if (snapshot.phase === "score") phaseLabel = "Round complete.";
+    else if (snapshot.phase === "think") phaseLabel = "Thinking…";
+    else phaseLabel = `Statement ${snapshot.statementNumber} of 3`;
+    q<HTMLElement>("#phase").textContent = phaseLabel;
     q<HTMLElement>("#statement-number").textContent = String(snapshot.statementNumber);
     q<HTMLButtonElement>("#start").hidden = snapshot.phase !== "idle";
     introGate.hidden = snapshot.phase !== "intro";
     q<HTMLElement>(".capture").hidden = !capture;
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
     q<HTMLButtonElement>("#submit").disabled = !capture || busy || asrBusy || Boolean(robotCapture);
-    traceTextConsent.disabled = snapshot.phase !== "idle";
-    q<HTMLInputElement>("#clip-consent").disabled = snapshot.phase !== "idle";
-    browserMicConsent.disabled = !capture;
-    q<HTMLButtonElement>("#mic").disabled = !capture || busy || asrBusy || Boolean(robotCapture) || !browserMicConsent.checked || !createRecognition();
+    traceTextConsent.disabled = fixtureMode || snapshot.phase !== "idle";
+    q<HTMLInputElement>("#clip-consent").disabled = fixtureMode || snapshot.phase !== "idle";
+    browserMicConsent.disabled = fixtureMode || !capture;
+    q<HTMLButtonElement>("#mic").disabled = fixtureMode || !capture || busy || asrBusy || Boolean(robotCapture) || !browserMicConsent.checked || !createRecognition();
     q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop browser microphone" : "Use browser microphone";
     robotMicButton.disabled = !robot || !capture || busy || asrBusy;
     robotMicButton.textContent = robotCapture ? "Stop & transcribe" : "Record robot microphone";
@@ -343,7 +390,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       item.textContent = `${entry.id.toUpperCase()} · ${entry.text}`;
       return item;
     }));
-    q<HTMLElement>("#score").textContent = `${rounds} Jev round${rounds === 1 ? "" : "s"} · ${wins} correct pick${wins === 1 ? "" : "s"} · ${fallbackRounds} fallback round${fallbackRounds === 1 ? "" : "s"}`;
+    q<HTMLElement>("#score").textContent = fixtureMode
+      ? `${fixtureRounds} offline fixture round${fixtureRounds === 1 ? "" : "s"} · no scores saved`
+      : `${rounds} Jev round${rounds === 1 ? "" : "s"} · ${wins} correct pick${wins === 1 ? "" : "s"} · ${fallbackRounds} fallback round${fallbackRounds === 1 ? "" : "s"}`;
   }
   function meter(p: number) {
     q<HTMLElement>("#meter-value").textContent = `${Math.round(p * 100)}%`;
@@ -355,7 +404,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     cueRows.replaceChildren(...rows.map((row) => {
       const item = document.createElement("li");
       const label = document.createElement("span");
-      label.textContent = `${row.label} · ${Math.round(row.probability * 100)}% model score`;
+      label.textContent = `${row.label} · ${Math.round(row.probability * 100)}% ${fixtureMode ? "fixed fixture value" : "model score"}`;
       const weight = document.createElement("span");
       weight.textContent = `${Math.round(row.effectiveWeight * 100)}% weight · ${Math.round(row.contribution * 100)} meter points`;
       const bar = document.createElement("progress");
@@ -365,7 +414,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       item.append(label, weight, bar);
       return item;
     }));
-    cueNote.textContent = `Statement ${statementId.slice(1)} · these are model judgments, not evidence of honesty.`;
+    cueNote.textContent = fixtureMode
+      ? `Statement ${statementId.slice(1)} · fixed synthetic values unrelated to the statement or its truth.`
+      : `Statement ${statementId.slice(1)} · these are model judgments, not evidence of honesty.`;
   }
   function neutralAfterReaction() {
     if (!motionEnabled) return;
@@ -471,10 +522,14 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       meter(recorded.pLie);
       showCues(cues, liveSettings.weights, id);
       if (motionVersion === motionEpoch) showGameMotion(recorded.pLie);
-      q<HTMLElement>("#verdict").textContent = recorded.pLie >= 0.7 ? "Those antennas are not buying it." : recorded.pLie >= 0.4 ? "Reachy has questions." : "Reachy seems relaxed. For now.";
+      q<HTMLElement>("#verdict").textContent = fixtureMode
+        ? `Fixed fixture meter: ${recorded.pLie >= 0.7 ? "high" : recorded.pLie >= 0.4 ? "middle" : "low"} band. This is unrelated to truth.`
+        : recorded.pLie >= 0.7 ? "Those antennas are not buying it." : recorded.pLie >= 0.4 ? "Reachy has questions." : "Reachy seems relaxed. For now.";
       statement.value = "";
       round.reactionDone();
-      announce(`Statement ${id.slice(1)} locked. Jev's cue estimate is ${Math.round(recorded.pLie * 100)}%.`);
+      announce(fixtureMode
+        ? `Statement ${id.slice(1)} locked with fixed synthetic values; no Jev judgment.`
+        : `Statement ${id.slice(1)} locked. Jev's cue estimate is ${Math.round(recorded.pLie * 100)}%.`);
       if (isThinking()) {
         render();
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -483,17 +538,25 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         let retriedFinal = false;
         try {
           const finalSettings = settings;
-          const final = await askFinalWithRetry(currentRelay, round.snapshot.statements, controller.signal, () => {
-            retriedFinal = true;
-            if (version === roundVersion) announce("Final Jev pick unavailable; retrying once. A second model call may be billed.");
-          });
+          const final = fixtureMode
+            ? await askFinal(currentRelay, round.snapshot.statements, controller.signal)
+            : await askFinalWithRetry(currentRelay, round.snapshot.statements, controller.signal, () => {
+              retriedFinal = true;
+              if (version === roundVersion) announce("Final Jev pick unavailable; retrying once. A second model call may be billed.");
+            });
           if (version !== roundVersion) return;
-          pick = round.commit(final.choice, final.confidence, finalSettings.thresholds);
-          finalEvidence = final;
-          finalThresholds = { ...finalSettings.thresholds };
+          pick = fixtureMode
+            ? round.commitFixture(final.choice, final.confidence, finalSettings.thresholds)
+            : round.commit(final.choice, final.confidence, finalSettings.thresholds);
+          finalEvidence = fixtureMode ? undefined : final;
+          finalThresholds = fixtureMode ? undefined : { ...finalSettings.thresholds };
           if (retriedFinal) announce("Final Jev pick received on retry. A second model call may have been billed.");
         } catch {
           if (version !== roundVersion) return;
+          if (fixtureMode) {
+            announce("Offline fixture failed; no random or Jev pick was substituted. Start a new round.", true);
+            return;
+          }
           pick = round.commitUnavailable(randomPick());
           finalEvidence = undefined;
           finalThresholds = undefined;
@@ -523,7 +586,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     } catch {
       if (version === roundVersion) {
         if (motionVersion === motionEpoch && motionEnabled) commandNeutral(0.5);
-        announce("Jev did not return a usable cue answer. The statement was not locked; try again.", true);
+        announce(fixtureMode
+          ? "Offline fixture failed; the statement was not locked. Start a new round."
+          : "Jev did not return a usable cue answer. The statement was not locked; try again.", true);
       }
     } finally {
       if (jevAbort === controller) jevAbort = undefined;
@@ -541,11 +606,15 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     traceTextConsent.checked = false;
     discardClip();
     const clipConsent = q<HTMLInputElement>("#clip-consent");
-    clipConsentForRound = clipConsent.checked;
+    clipConsentForRound = !fixtureMode && clipConsent.checked;
     clipConsent.checked = false;
-    clipStatus.textContent = clipConsentForRound ? "Consented clip will start with statement 1, after the opening line." : "No clip recording requested.";
-    void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
-    announce("Wait until the opening line sounds finished, then begin statement 1.");
+    clipStatus.textContent = fixtureMode
+      ? "No video clip in the offline fixture."
+      : clipConsentForRound ? "Consented clip will start with statement 1, after the opening line." : "No clip recording requested.";
+    if (!fixtureMode) void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
+    announce(fixtureMode
+      ? "Offline fixture: fixed numbers are independent of your text. Begin statement 1."
+      : "Wait until the opening line sounds finished, then begin statement 1.");
     render();
   }
   function beginCapture() {
@@ -574,7 +643,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       }
     }
     clipConsentForRound = false;
-    announce("Tell the first statement. Use the button, microphone, or a gentle antenna tap.");
+    announce(fixtureMode
+      ? "Type the first statement. No microphone, relay, or robot is used."
+      : "Tell the first statement. Use the button, microphone, or a gentle antenna tap.");
     statement.focus();
     render();
   }
@@ -595,7 +666,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     clipConsentForRound = false;
     const hadClip = Boolean(clipRecorder || clipFile);
     discardClip();
-    clipStatus.textContent = hadClip ? "Previous clip discarded." : "No clip recording requested.";
+    clipStatus.textContent = fixtureMode
+      ? "No video clip in the offline fixture."
+      : hadClip ? "Previous clip discarded." : "No clip recording requested.";
     clearTimeout(silenceTimer);
     cancelBrowserRecognition();
     round = new Round();
@@ -605,9 +678,13 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     leaderboardStatus.classList.remove("error");
     meter(0);
     q<HTMLElement>("#meter-value").textContent = "—";
-    q<HTMLElement>("#verdict").textContent = "Three statements. Two truths. One very expressive robot.";
+    q<HTMLElement>("#verdict").textContent = fixtureMode
+      ? "Three typed statements. One fixed offline pick. No truth judgment."
+      : "Three statements. Two truths. One very expressive robot.";
     cueRows.replaceChildren();
-    cueNote.textContent = "Lock a statement to see the four model cues and their weights.";
+    cueNote.textContent = fixtureMode
+      ? "Lock a statement to see the fixed synthetic cue values and their weights."
+      : "Lock a statement to see the four model cues and their weights.";
     finalCue.textContent = "";
     finalCue.hidden = true;
     commandNeutral();
@@ -617,6 +694,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   beginCaptureButton.addEventListener("click", beginCapture);
   relayForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (fixtureMode) return;
     try {
       relay = new RelayPort(urlInput.value, tokenInput.value);
       tokenInput.value = "";
@@ -773,14 +851,17 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!button || round.snapshot.phase !== "reveal") return;
     const source = round.snapshot.pick?.source;
     const correct = round.reveal(button.dataset.lie as StatementId);
-    try {
-      sessionTrace.add(round.snapshot, liveEvidence, finalEvidence, finalThresholds, traceTextForRound);
-      renderTrace();
-    } catch {
-      traceStatus.textContent = "This round could not be added to the session trace.";
-      traceStatus.classList.add("error");
+    if (!fixtureMode) {
+      try {
+        sessionTrace.add(round.snapshot, liveEvidence, finalEvidence, finalThresholds, traceTextForRound);
+        renderTrace();
+      } catch {
+        traceStatus.textContent = "This round could not be added to the session trace.";
+        traceStatus.classList.add("error");
+      }
     }
-    if (source === "jev") {
+    if (source === "fixture") fixtureRounds++;
+    else if (source === "jev") {
       rounds++;
       if (correct) wins++;
     } else fallbackRounds++;
@@ -799,10 +880,14 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       leaderboardStatus.textContent = "Random fallback round was not ranked.";
       leaderboardStatus.classList.remove("error");
     }
-    const words = source === "fallback" ? (correct ? "Lucky guess." : "That was random; you got me.") : correct ? "Told you." : "Well played.";
+    const words = source === "fixture"
+      ? "Offline fixture complete. The fixed pick says nothing about which statement was true."
+      : source === "fallback" ? (correct ? "Lucky guess." : "That was random; you got me.") : correct ? "Told you." : "Well played.";
     q<HTMLElement>("#verdict").textContent = words;
     void speakGame(words);
-    announce(source === "fallback" ? "This was an unranked random pick, not a Jev judgment." : correct ? "Reachy picked the lie." : "You fooled Reachy.");
+    announce(source === "fixture"
+      ? "Offline fixture round only; no Jev call, score, or calibration trace."
+      : source === "fallback" ? "This was an unranked random pick, not a Jev judgment." : correct ? "Reachy picked the lie." : "You fooled Reachy.");
     if (clipFile) {
       downloadClipButton.hidden = false;
       shareClipButton.hidden = !canShareClip(clipFile);
@@ -815,6 +900,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     render();
   });
   q<HTMLButtonElement>("#clear-leaderboard").addEventListener("click", () => {
+    if (fixtureMode) return;
     if (!window.confirm("Delete all locally saved Poker Face nicknames and scores?")) return;
     leaderboard = [];
     try { localStorage.removeItem(LEADERBOARD_KEY); leaderboardStatus.textContent = "Saved scores deleted."; }
@@ -823,6 +909,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     renderLeaderboard();
   });
   q<HTMLButtonElement>("#mic").addEventListener("click", () => {
+    if (fixtureMode) return;
     if (micActive) { cancelBrowserRecognition(); render(); return; }
     if (round.snapshot.phase !== "capture" || !browserMicConsent.checked) return announce("Check browser microphone consent for this round first.", true);
     recognition = createRecognition();
