@@ -4,3 +4,5 @@ export * from "./jev.js";
 export * from "./relay.js";
 export * from "./motion.js";
 export * from "./antenna.js";
+export * from "./settings.js";
+export * from "./leaderboard.js";

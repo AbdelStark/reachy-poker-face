@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeDelivery, liveSuspicion, commitStyle, Round } from "../lib/index.js";
+import { analyzeDelivery, liveSuspicion, commitStyle, Round, gameSettings, parseSettings, DEFAULT_SETTINGS } from "../lib/index.js";
 
 const cues = { lie_now: 0.6, implausible: 0.2, hedged: 0.5, too_specific: 0.1 };
 
@@ -23,7 +23,20 @@ test("composite and commit style honor configured thresholds", () => {
   assert.equal(commitStyle(0.7), "confident");
   assert.equal(commitStyle(0.4), "hedge");
   assert.equal(commitStyle(0.399), "coin_flip");
+  assert.equal(commitStyle(0.6, { hedge: 0.3, confident: 0.55 }), "confident");
+  assert.throws(() => commitStyle(0.6, { hedge: 0.7, confident: 0.4 }), RangeError);
   assert.throws(() => commitStyle(NaN), RangeError);
+});
+
+test("settings reject corrupt storage and apply cue weights to the next statement", () => {
+  assert.deepEqual(parseSettings("not-json"), DEFAULT_SETTINGS);
+  assert.throws(() => gameSettings({ weights: { lie_now: 0, implausible: 0, hedged: 0, too_specific: 0 }, thresholds: { hedge: 0.4, confident: 0.7 } }), RangeError);
+  assert.throws(() => gameSettings({ weights: DEFAULT_SETTINGS.weights, thresholds: { hedge: 0.8, confident: 0.7 } }), RangeError);
+  const weights = { lie_now: 0, implausible: 1, hedged: 0, too_specific: 0 };
+  const round = new Round();
+  round.start();
+  round.introDone();
+  assert.equal(round.submit("one two three four", [], cues, weights).pLie, cues.implausible);
 });
 
 test("round enforces sequence and text-free export", () => {

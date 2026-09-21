@@ -1,4 +1,4 @@
-import { commitStyle, type CueProbabilities, liveSuspicion } from "./cues.js";
+import { commitStyle, type CommitThresholds, type CueProbabilities, type CueWeights, liveSuspicion } from "./cues.js";
 
 export type Phase = "idle" | "intro" | "capture" | "react" | "think" | "commit" | "reveal" | "score";
 export type StatementId = "s1" | "s2" | "s3";
@@ -17,12 +17,12 @@ export class Round {
   }
   start(): void { this.require("idle"); this.phase_ = "intro"; }
   introDone(): void { this.require("intro"); this.phase_ = "capture"; }
-  submit(text: string, delivery: readonly string[], cues: CueProbabilities): Statement {
+  submit(text: string, delivery: readonly string[], cues: CueProbabilities, weights?: CueWeights): Statement {
     this.require("capture");
     const clean = text.trim();
     if (clean.split(/\s+/).length < 4 || clean.length > 400) throw new TypeError("statement must have 4+ words and <=400 characters");
     const id = `s${this.statements_.length + 1}` as StatementId;
-    const statement = { id, text: clean, delivery: [...delivery], pLie: liveSuspicion(cues) };
+    const statement = { id, text: clean, delivery: [...delivery], pLie: liveSuspicion(cues, weights) };
     this.statements_.push(statement);
     this.phase_ = "react";
     return statement;
@@ -31,10 +31,10 @@ export class Round {
     this.require("react");
     this.phase_ = this.statements_.length === 3 ? "think" : "capture";
   }
-  commit(choice: StatementId, confidence: number): Pick {
+  commit(choice: StatementId, confidence: number, thresholds?: CommitThresholds): Pick {
     this.require("think");
     if (!["s1", "s2", "s3"].includes(choice)) throw new TypeError("invalid pick");
-    this.pick_ = { choice, confidence, style: commitStyle(confidence), source: "jev" };
+    this.pick_ = { choice, confidence, style: commitStyle(confidence, thresholds), source: "jev" };
     this.phase_ = "commit";
     return this.pick_;
   }

@@ -31,6 +31,8 @@ export function analyzeDelivery(words: readonly WordTiming[]): DeliveryAnalysis 
 export interface CueProbabilities { lie_now: number; implausible: number; hedged: number; too_specific: number }
 export interface CueWeights { lie_now: number; implausible: number; hedged: number; too_specific: number }
 export const DEFAULT_WEIGHTS: CueWeights = { lie_now: 0.5, implausible: 0.2, hedged: 0.2, too_specific: 0.1 };
+export interface CommitThresholds { hedge: number; confident: number }
+export const DEFAULT_THRESHOLDS: CommitThresholds = { hedge: 0.4, confident: 0.7 };
 export function liveSuspicion(cues: CueProbabilities, weights: CueWeights = DEFAULT_WEIGHTS): number {
   let numerator = 0;
   let denominator = 0;
@@ -44,7 +46,8 @@ export function liveSuspicion(cues: CueProbabilities, weights: CueWeights = DEFA
   if (denominator <= 0) throw new RangeError("weights must have positive sum");
   return numerator / denominator;
 }
-export function commitStyle(confidence: number): "confident" | "hedge" | "coin_flip" {
+export function commitStyle(confidence: number, thresholds: CommitThresholds = DEFAULT_THRESHOLDS): "confident" | "hedge" | "coin_flip" {
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new RangeError("invalid confidence");
-  return confidence >= 0.7 ? "confident" : confidence >= 0.4 ? "hedge" : "coin_flip";
+  if (!Number.isFinite(thresholds.hedge) || !Number.isFinite(thresholds.confident) || thresholds.hedge < 0 || thresholds.confident > 1 || thresholds.hedge >= thresholds.confident) throw new RangeError("invalid commit thresholds");
+  return confidence >= thresholds.confident ? "confident" : confidence >= thresholds.hedge ? "hedge" : "coin_flip";
 }

@@ -13,7 +13,7 @@ export class RelayPort implements JevPort {
     this.endpoint = new URL("/v1/systemone", url);
   }
   async systemOne(request: { state: EntryType; questions: Questions }): Promise<JevReply> {
-    const response = await this.fetcher(this.endpoint, {
+    const response = await this.fetcher.call(globalThis, this.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
       body: JSON.stringify(request),
