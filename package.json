@@ -15,7 +15,8 @@
     "dev": "vite --host 127.0.0.1",
     "relay": "node server/main.mjs",
     "test": "npm run build:core && node --test test/*.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "calibrate": "python3 scripts/calibration.py"
   },
   "dependencies": {
     "@pollen-robotics/reachy-mini-sdk": "1.8.0",

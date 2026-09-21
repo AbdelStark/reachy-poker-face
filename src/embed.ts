@@ -1,12 +1,14 @@
 import { connectToHost } from "@pollen-robotics/reachy-mini-sdk/host/embed";
 import { AntennaTap } from "./antenna.js";
-import { askFinal, askLive, type JevPort } from "./jev.js";
+import { askFinal, askLive, type FinalJudgment, type JevPort } from "./jev.js";
 import { performCoinFlip, showSuspicion, toSdkTarget } from "./motion.js";
 import { RelayPort } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
 import { DEFAULT_SETTINGS, gameSettings, parseSettings, SETTINGS_KEY, type GameSettings } from "./settings.js";
 import { LEADERBOARD_KEY, parseLeaderboard, recordRound, type LeaderboardEntry } from "./leaderboard.js";
 import { ClipRecorder, type ClipFile } from "./clip.js";
+import { SessionTrace, type LiveEvidence } from "./trace.js";
+import type { CommitThresholds } from "./cues.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -60,6 +62,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
           <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Microphone mode uses your browser's speech service, which may process audio off-device. No audio is recorded by this app. Antenna tap works only while the antennas are neutral.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
+          <div class="card"><div class="section-heading"><span class="step">05</span><h2>Session trace</h2></div><p class="small">Completed rounds stay in this tab only. Export JSONL to inspect picks and calibration later. Statement text is excluded by default; neither nickname nor video is included.</p><label class="clip-consent"><input id="trace-text-consent" type="checkbox" /><span>Include the next round's statement text in the trace export. Ask the player first.</span></label><button id="download-trace" class="secondary" type="button" disabled>Download trace JSONL</button><button id="clear-trace" class="text-button" type="button" disabled>Discard session trace</button><p id="trace-status" class="status" aria-live="polite">No completed rounds in this session.</p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
       </div>
@@ -81,10 +84,19 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   const nickname = q<HTMLInputElement>("#nickname");
   const leaderboardStatus = q<HTMLElement>("#leaderboard-status");
   const clipStatus = q<HTMLElement>("#clip-status");
+  const traceStatus = q<HTMLElement>("#trace-status");
+  const traceTextConsent = q<HTMLInputElement>("#trace-text-consent");
+  const downloadTraceButton = q<HTMLButtonElement>("#download-trace");
+  const clearTraceButton = q<HTMLButtonElement>("#clear-trace");
   const downloadClipButton = q<HTMLButtonElement>("#download-clip");
   const statement = q<HTMLTextAreaElement>("#statement");
   const video = q<HTMLVideoElement>("#robot-video");
   let round = new Round();
+  const sessionTrace = new SessionTrace();
+  let liveEvidence: LiveEvidence[] = [];
+  let finalEvidence: FinalJudgment | undefined;
+  let finalThresholds: CommitThresholds | undefined;
+  let traceTextForRound = false;
   let roundVersion = 0;
   let settings: GameSettings;
   try { settings = parseSettings(localStorage.getItem(SETTINGS_KEY)); }
@@ -159,6 +171,14 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLButtonElement>("#clear-leaderboard").disabled = leaderboard.length === 0;
     if (!leaderboard.length) list.textContent = "No saved scores yet.";
   }
+  function renderTrace() {
+    traceStatus.classList.remove("error");
+    downloadTraceButton.disabled = sessionTrace.count === 0;
+    clearTraceButton.disabled = sessionTrace.count === 0;
+    traceStatus.textContent = sessionTrace.count
+      ? `${sessionTrace.count} completed round${sessionTrace.count === 1 ? "" : "s"} in this tab. Download or discard before leaving.`
+      : "No completed rounds in this session.";
+  }
   function render() {
     const snapshot = round.snapshot;
     const capture = snapshot.phase === "capture";
@@ -169,6 +189,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
     q<HTMLButtonElement>("#submit").disabled = !capture || busy;
     q<HTMLButtonElement>("#reset").disabled = busy;
+    traceTextConsent.disabled = snapshot.phase !== "idle";
     q<HTMLButtonElement>("#mic").disabled = !capture || busy || !createRecognition();
     q<HTMLButtonElement>("#mic").textContent = micActive ? "Stop microphone" : "Use microphone";
     const list = q<HTMLOListElement>("#statements");
@@ -211,6 +232,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
       const cues = await askLive(relay, { id, text }, earlier);
       if (version !== roundVersion) return;
       const recorded = round.submit(text, [], cues, liveSettings.weights);
+      liveEvidence.push({ id, cues: { ...cues }, weights: { ...liveSettings.weights } });
       meter(recorded.pLie);
       showSuspicion(robot, recorded.pLie);
       q<HTMLElement>("#verdict").textContent = recorded.pLie >= 0.7 ? "Those antennas are not buying it." : recorded.pLie >= 0.4 ? "Reachy has questions." : "Reachy seems relaxed. For now.";
@@ -227,9 +249,13 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
           const final = await askFinal(relay, round.snapshot.statements);
           if (version !== roundVersion) return;
           pick = round.commit(final.choice, final.confidence, finalSettings.thresholds);
+          finalEvidence = final;
+          finalThresholds = { ...finalSettings.thresholds };
         } catch {
           if (version !== roundVersion) return;
           pick = round.commitUnavailable(randomPick());
+          finalEvidence = undefined;
+          finalThresholds = undefined;
         }
         if (pick.style === "coin_flip") await performCoinFlip(robot, undefined, () => version === roundVersion);
         else showSuspicion(robot, pick.style === "confident" ? 0.85 : 0.5);
@@ -251,6 +277,11 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     if (round.snapshot.phase !== "idle") return;
     round.start();
     round.introDone();
+    liveEvidence = [];
+    finalEvidence = undefined;
+    finalThresholds = undefined;
+    traceTextForRound = traceTextConsent.checked;
+    traceTextConsent.checked = false;
     discardClip();
     const clipConsent = q<HTMLInputElement>("#clip-consent");
     const consentedForThisRound = clipConsent.checked;
@@ -279,6 +310,10 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   function resetRound() {
     if (busy) return;
     roundVersion++;
+    liveEvidence = [];
+    finalEvidence = undefined;
+    finalThresholds = undefined;
+    traceTextForRound = false;
     const hadClip = Boolean(clipRecorder || clipFile);
     discardClip();
     clipStatus.textContent = hadClip ? "Previous clip discarded." : "No clip recording requested.";
@@ -335,11 +370,32 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   });
+  downloadTraceButton.addEventListener("click", () => {
+    if (!sessionTrace.count) return;
+    const url = URL.createObjectURL(new Blob([sessionTrace.toJSONL()], { type: "application/x-ndjson" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `pokerface-trace-${new Date().toISOString().slice(0, 10)}.jsonl`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  });
+  clearTraceButton.addEventListener("click", () => {
+    if (!window.confirm("Discard all completed round traces kept in this tab?")) return;
+    sessionTrace.clear();
+    renderTrace();
+  });
   q<HTMLElement>("#reveal").addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-lie]");
     if (!button || round.snapshot.phase !== "reveal") return;
     const source = round.snapshot.pick?.source;
     const correct = round.reveal(button.dataset.lie as StatementId);
+    try {
+      sessionTrace.add(round.snapshot, liveEvidence, finalEvidence, finalThresholds, traceTextForRound);
+      renderTrace();
+    } catch {
+      traceStatus.textContent = "This round could not be added to the session trace.";
+      traceStatus.classList.add("error");
+    }
     if (source === "jev") {
       rounds++;
       if (correct) wins++;
@@ -411,9 +467,11 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   };
   robot?.addEventListener("state", onState);
   renderLeaderboard();
+  renderTrace();
   render();
   return () => {
     roundVersion++;
+    sessionTrace.clear();
     discardClip();
     clearTimeout(silenceTimer);
     recognition?.stop();

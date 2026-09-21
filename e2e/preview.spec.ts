@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 const TOKEN = "t".repeat(32);
 const ORIGIN = "http://127.0.0.1:5173";
@@ -174,4 +175,41 @@ test("an unavailable final judgment is explicit and unranked", async ({ page }) 
   await expect(page.locator("#score")).toContainText("0 Jev rounds");
   await expect(page.locator("#leaderboard-status")).toContainText("not ranked");
   await expect(page.locator("#leaderboard li")).toHaveCount(0);
+});
+
+test("default session trace download is text-free and keeps final provenance", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await playThreeStatements(page);
+  await page.locator('button[data-lie="s2"]').click();
+  await expect(page.locator("#trace-status")).toContainText("1 completed round");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download trace JSONL" }).click();
+  const download = await downloadPromise;
+  const jsonl = await readFile(await download.path(), "utf8");
+  const record = JSON.parse(jsonl.trim());
+  expect(record.schema).toBe("pokerface.round@1");
+  expect(record.pick).toMatchObject({ source: "jev", choice: "s2", model: "fixture" });
+  expect(record.correct).toBe(true);
+  expect(jsonl).not.toContain("mountain");
+  expect(jsonl).not.toContain("dragon");
+  expect(jsonl).not.toContain("tomato");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard session trace" }).click();
+  await expect(page.getByRole("button", { name: "Download trace JSONL" })).toBeDisabled();
+});
+
+test("statement text enters a trace only with per-round consent", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.locator("#trace-text-consent").check();
+  await playThreeStatements(page);
+  await expect(page.locator("#trace-text-consent")).not.toBeChecked();
+  await expect(page.locator("#trace-text-consent")).toBeDisabled();
+  await page.locator('button[data-lie="s1"]').click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download trace JSONL" }).click();
+  const jsonl = await readFile(await (await downloadPromise).path(), "utf8");
+  expect(jsonl).toContain("I once climbed a mountain");
+  expect(jsonl).not.toContain("nickname");
 });
