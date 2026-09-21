@@ -13,6 +13,7 @@ import { cueBreakdown, finalCueLabel } from "./cue_panel.js";
 import { analyzeDelivery, type DeliveryAnalysis } from "./cues.js";
 import { LocalAsrPort } from "./asr.js";
 import { RobotStatementRecorder } from "./robot_audio.js";
+import { LocalTtsPort, RobotSpeechOutput } from "./tts.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -65,13 +66,13 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
-          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap works only while the antennas are neutral.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
+          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap works only while the antennas are neutral.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><div class="robot-tts" ${robot ? "" : "hidden"}><h3>Robot speaker · local TTS</h3><p class="small">Optional: only fixed game lines go to an authenticated loopback voice companion, then through Reachy's audio-upload API. Your statements are never spoken by this path.</p><form id="tts-form"><label>Local TTS URL<input id="tts-url" type="url" value="http://127.0.0.1:8050" required autocomplete="url" /></label><label>TTS token<input id="tts-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local TTS</button></form><label class="clip-consent"><input id="tts-robot" type="checkbox" disabled /><span>Use Reachy's speaker for game lines instead of this browser.</span></label><p id="tts-status" class="status" aria-live="polite">Browser speech selected. Robot speaker off.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
           <div class="card"><div class="section-heading"><span class="step">05</span><h2>Session trace</h2></div><p class="small">Completed rounds stay in this tab only. Export JSONL to inspect picks and calibration later. Statement text is excluded by default; neither nickname nor video is included.</p><label class="clip-consent"><input id="trace-text-consent" type="checkbox" /><span>Include the next round's statement text in the trace export. Ask the player first.</span></label><button id="download-trace" class="secondary" type="button" disabled>Download trace JSONL</button><button id="clear-trace" class="text-button" type="button" disabled>Discard session trace</button><p id="trace-status" class="status" aria-live="polite">No completed rounds in this session.</p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
       </div>
-      <footer>Typed judgments choose; game code decides. Speech cues play on this browser, not the robot speaker.</footer>
+      <footer>Typed judgments choose; game code decides. Browser speech is the default; robot-speaker speech is opt-in and unverified on hardware.</footer>
     </main>`;
 
   const q = <T extends HTMLElement>(selector: string) => {
@@ -103,6 +104,10 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   const asrConsent = q<HTMLInputElement>("#asr-consent");
   const asrStatus = q<HTMLElement>("#asr-status");
   const robotMicButton = q<HTMLButtonElement>("#robot-mic");
+  const ttsForm = q<HTMLFormElement>("#tts-form");
+  const ttsToken = q<HTMLInputElement>("#tts-token");
+  const ttsRobot = q<HTMLInputElement>("#tts-robot");
+  const ttsStatus = q<HTMLElement>("#tts-status");
   const video = q<HTMLVideoElement>("#robot-video");
   let round = new Round();
   const sessionTrace = new SessionTrace();
@@ -129,6 +134,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let recognition: Recognition | null = null;
   let micActive = false;
   let localAsr: LocalAsrPort | undefined;
+  let robotSpeech: RobotSpeechOutput | undefined;
+  let speechVersion = 0;
   let robotCapture: RobotStatementRecorder | undefined;
   let asrAbort: AbortController | undefined;
   let asrBusy = false;
@@ -158,6 +165,31 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   function announce(message: string, isError = false) {
     status.textContent = message;
     status.classList.toggle("error", isError);
+  }
+  function cancelGameSpeech() {
+    speechVersion++;
+    speechSynthesis.cancel();
+    robotSpeech?.cancel();
+  }
+  async function speakGame(text: string) {
+    const version = ++speechVersion;
+    if (!ttsRobot.checked) {
+      robotSpeech?.cancel();
+      speakLocal(text);
+      return;
+    }
+    speechSynthesis.cancel();
+    const output = robotSpeech;
+    if (!output) {
+      ttsStatus.textContent = "Robot speaker unavailable. Game line remains visible; no browser fallback.";
+      return;
+    }
+    try {
+      await output.speak(text);
+      if (version === speechVersion) ttsStatus.textContent = "Robot playback started (completion not acknowledged).";
+    } catch {
+      if (version === speechVersion) ttsStatus.textContent = "Robot speech failed. Game line remains visible; no browser fallback.";
+    }
   }
   async function finishClip() {
     clearTimeout(clipStopTimer);
@@ -295,7 +327,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     const stream = media?.robotStream;
     if (!stream?.getAudioTracks().some((track: MediaStreamTrack) => track.readyState === "live")) return announce("Robot audio track is unavailable.", true);
     const version = roundVersion;
-    speechSynthesis.cancel();
+    cancelGameSpeech();
     recognition?.stop();
     clearTimeout(silenceTimer);
     statement.value = "";
@@ -373,7 +405,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         finalCue.textContent = pick.source === "jev" && finalEvidence
           ? `Jev highlighted ${finalCueLabel(finalEvidence.topCue)} for its game pick. That cue is not evidence that anyone lied.`
           : "";
-        speakLocal(words);
+        void speakGame(words);
         round.commitDone();
       } else neutralAfterReaction();
     } catch {
@@ -412,7 +444,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         clipStatus.classList.add("error");
       }
     } else clipStatus.textContent = "No clip recording requested.";
-    speakLocal(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
+    void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
     disclaimerSpoken = true;
     announce("Tell the first statement. Use the button, microphone, or a gentle antenna tap.");
     statement.focus();
@@ -422,6 +454,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (busy) return;
     roundVersion++;
     cancelRobotAudio();
+    cancelGameSpeech();
     asrConsent.checked = false;
     asrStatus.textContent = "Robot microphone off. No audio sent.";
     liveEvidence = [];
@@ -468,6 +501,27 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     } catch (error) {
       asrStatus.textContent = error instanceof Error ? error.message : "Invalid local ASR settings.";
     }
+  });
+  ttsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!robot) return;
+    try {
+      const port = new LocalTtsPort(q<HTMLInputElement>("#tts-url").value, ttsToken.value);
+      cancelGameSpeech();
+      robotSpeech = new RobotSpeechOutput(robot, port);
+      ttsToken.value = "";
+      ttsRobot.checked = false;
+      ttsRobot.disabled = false;
+      ttsStatus.textContent = "Local TTS configured for this tab. Check the box to use Reachy's speaker.";
+    } catch (error) {
+      ttsStatus.textContent = error instanceof Error ? error.message : "Invalid local TTS settings.";
+    }
+  });
+  ttsRobot.addEventListener("change", () => {
+    cancelGameSpeech();
+    ttsStatus.textContent = ttsRobot.checked
+      ? "Robot speaker selected. Playback is unverified on hardware."
+      : "Browser speech selected. Any active robot playback received a best-effort cancel request.";
   });
   asrConsent.addEventListener("change", () => {
     if (!asrConsent.checked) {
@@ -560,7 +614,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     }
     const words = source === "fallback" ? (correct ? "Lucky guess." : "That was random; you got me.") : correct ? "Told you." : "Well played.";
     q<HTMLElement>("#verdict").textContent = words;
-    speakLocal(words);
+    void speakGame(words);
     announce(source === "fallback" ? "This was an unranked random pick, not a Jev judgment." : correct ? "Reachy picked the lie." : "You fooled Reachy.");
     if (clipFile) {
       downloadClipButton.hidden = false;
@@ -616,11 +670,11 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   return () => {
     roundVersion++;
     cancelRobotAudio();
+    cancelGameSpeech();
     sessionTrace.clear();
     discardClip();
     clearTimeout(silenceTimer);
     recognition?.stop();
-    speechSynthesis.cancel();
     robot?.removeEventListener("state", onState);
     robot?.unsubscribePose();
     cleanupVideo?.();

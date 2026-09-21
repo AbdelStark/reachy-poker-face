@@ -52,8 +52,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m pip install ruff==0.16.8
-      - run: ruff check scripts server/local_asr.py
-      - run: ruff format --check scripts server/local_asr.py
+      - run: ruff check scripts server/local_asr.py server/local_tts.py
+      - run: ruff format --check scripts server/local_asr.py server/local_tts.py
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   asr-api:
@@ -67,3 +67,15 @@ jobs:
           python-version: '3.11'
       - run: python3 -m pip install -r requirements-asr.txt
       - run: python3 scripts/check_asr_api.py
+
+  offline-tts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y espeak-ng ffmpeg
+      - run: python3 -m unittest scripts.test_local_tts -v

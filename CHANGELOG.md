@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add opt-in robot-speaker game lines through an authenticated local eSpeak/FFmpeg WAV companion and the pinned SDK audio-upload path. Cancellation and fail-closed browser behavior are fixture-tested; playback has no robot validation or completion acknowledgement.
 - Add opt-in robot-stream PCM capture and a loopback-only faster-whisper companion that returns bounded word timings; derive delivery buckets in code and require per-round audio consent. Synthetic browser streams, fake-model HTTP tests, and an installed-package API smoke cover software boundaries only.
 - Show all four text-model cue scores, normalized weights, and meter contributions; label the composite as a game score rather than a calibrated probability. Show the final model-selected cue only for a Jev-backed pick.
 - Add session-only JSONL round traces with text excluded by default and explicit per-round text consent.

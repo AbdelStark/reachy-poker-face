@@ -4,6 +4,23 @@ import { readFile } from "node:fs/promises";
 const TOKEN = "t".repeat(32);
 const ORIGIN = "http://127.0.0.1:5173";
 
+function fixtureWav(): Buffer {
+  const bytes = Buffer.alloc(44 + 16_000);
+  bytes.write("RIFF", 0);
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WAVEfmt ", 8);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(16_000, 24);
+  bytes.writeUInt32LE(32_000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36);
+  bytes.writeUInt32LE(bytes.length - 44, 40);
+  return bytes;
+}
+
 async function mockRelay(page: Page, failFinal = false) {
   await page.route("http://127.0.0.1:8047/v1/systemone", async (route) => {
     const headers = {
@@ -77,6 +94,59 @@ test("preview renders and saves validated game settings", async ({ page }) => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await expect(page.locator("#settings-status")).toContainText("hedge must be below confident");
+});
+
+test("explicit robot-speaker mode sends only a game line and reset requests cancellation", async ({ page }) => {
+  const wav = fixtureWav();
+  let requests = 0;
+  await page.route("http://127.0.0.1:8050/v1/tts", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "audio/wav",
+      "Content-Length": String(wav.length),
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    requests++;
+    expect(route.request().postDataJSON()).toEqual({ text: requests === 1
+      ? "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go."
+      : "Three statements. Go." });
+    if (requests === 2) return route.fulfill({ status: 503, headers, body: "" });
+    return route.fulfill({ status: 200, headers, body: wav });
+  });
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const events: string[] = [];
+    (window as unknown as { robotEvents: string[] }).robotEvents = events;
+    Object.defineProperty(window.speechSynthesis, "speak", { value: () => events.push("browser-speak"), configurable: true });
+    const robot = {
+      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      addEventListener() {}, removeEventListener() {},
+      uploadAudio: async (blob: Blob) => { events.push(`upload:${blob.type}:${blob.size}`); return "fixture-upload"; },
+      playUploadedAudio: async (id: string) => { events.push(`play:${id}`); return { started: true as const }; },
+      cancelAudio: (id: string) => { events.push(`cancel:${id}`); return true; },
+    };
+    const media = { attachVideo: () => () => {} };
+    const { mountApp } = await import("/src/embed.ts");
+    mountApp(robot as never, media as never);
+  });
+  await page.locator("#tts-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Configure local TTS" }).click();
+  await page.locator("#tts-robot").check();
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await expect(page.locator("#tts-status")).toContainText("playback started");
+  const events = await page.evaluate(() => (window as unknown as { robotEvents: string[] }).robotEvents);
+  expect(events).toEqual([`upload:audio/wav:${wav.length}`, "play:fixture-upload"]);
+  expect(requests).toBe(1);
+  await page.getByRole("button", { name: "New round" }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { robotEvents: string[] }).robotEvents.at(-1))).toBe("cancel:fixture-upload");
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await expect(page.locator("#tts-status")).toContainText("no browser fallback");
+  expect(await page.evaluate(() => (window as unknown as { robotEvents: string[] }).robotEvents)).not.toContain("browser-speak");
+  expect(requests).toBe(2);
 });
 
 test("preview fits a narrow phone viewport without horizontal scrolling", async ({ page }) => {
