@@ -39,6 +39,7 @@ async function playThreeStatements(page: Page) {
     await page.locator("#statement").fill(statement);
     await page.getByRole("button", { name: "Lock statement" }).click();
     await expect(page.locator("#statements li")).toHaveCount(index + 1);
+    await expect(page.locator("#cue-rows li")).toHaveCount(4);
   }
   await expect(page.locator("#reveal")).toBeVisible();
 }
@@ -80,8 +81,10 @@ test("preview renders and saves validated game settings", async ({ page }) => {
 
 test("preview fits a narrow phone viewport without horizontal scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await mockRelay(page);
   await page.goto("/?preview=1");
   await expect(page.locator("#connection")).toBeVisible();
+  await playThreeStatements(page);
   const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
 });
@@ -124,6 +127,10 @@ test("a Jev-backed round updates the local leaderboard without saving statements
   await mockRelay(page);
   await page.goto("/?preview=1");
   await playThreeStatements(page);
+  await expect(page.locator("#cue-note")).toContainText("model judgments, not evidence");
+  await expect(page.locator("#cue-rows li").first()).toContainText("50% weight");
+  await expect(page.locator("#final-cue")).toContainText("Jev highlighted implausibility");
+  await expect(page.locator("#final-cue")).toContainText("not evidence");
   await page.locator("#nickname").fill("Ada");
   await page.locator('button[data-lie="s1"]').click();
   await expect(page.locator("#score")).toContainText("1 Jev round");
@@ -169,6 +176,7 @@ test("an unavailable final judgment is explicit and unranked", async ({ page }) 
   await mockRelay(page, true);
   await page.goto("/?preview=1");
   await playThreeStatements(page);
+  await expect(page.locator("#final-cue")).toBeHidden();
   await page.locator("#nickname").fill("Ada");
   await page.locator('button[data-lie="s1"]').click();
   await expect(page.locator("#score")).toContainText("1 fallback round");

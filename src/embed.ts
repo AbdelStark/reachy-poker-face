@@ -9,6 +9,7 @@ import { LEADERBOARD_KEY, parseLeaderboard, recordRound, type LeaderboardEntry }
 import { ClipRecorder, type ClipFile } from "./clip.js";
 import { SessionTrace, type LiveEvidence } from "./trace.js";
 import type { CommitThresholds } from "./cues.js";
+import { cueBreakdown, finalCueLabel } from "./cue_panel.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -53,9 +54,10 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
       <header class="masthead"><div class="brand"><span class="brand-icon">🃏</span><div><p class="eyebrow">Reachy Mini game</p><h1>Poker Face</h1></div></div><div id="connection" class="connection"></div></header>
       <div class="layout">
         <section class="stage" aria-label="Game stage">
-          <div class="video-wrap"><video id="robot-video" autoplay playsinline muted aria-label="Reachy Mini camera"></video><div class="video-fallback" id="video-fallback">${robot ? "Waiting for robot camera…" : "Preview mode · no robot connected"}</div><span class="live-badge">LIVE PROBABILITY</span></div>
-          <div class="meter-card"><div class="meter-top"><span>How suspicious did that sound?</span><strong id="meter-value">—</strong></div><div class="meter-track" role="progressbar" aria-label="Suspicion probability" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter"><div class="meter-fill" id="meter-fill"></div></div><p class="meter-note">Jev judges linguistic cues for a party game. This is not a lie detector.</p></div>
+          <div class="video-wrap"><video id="robot-video" autoplay playsinline muted aria-label="Reachy Mini camera"></video><div class="video-fallback" id="video-fallback">${robot ? "Waiting for robot camera…" : "Preview mode · no robot connected"}</div><span class="live-badge">GAME CUE METER</span></div>
+          <div class="meter-card"><div class="meter-top"><span>Invented-story cue composite</span><strong id="meter-value">—</strong></div><div class="meter-track" role="progressbar" aria-label="Composite game cue meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter"><div class="meter-fill" id="meter-fill"></div></div><p class="meter-note">A weighted game score from Jev's text judgments, not a calibrated probability or lie detector.</p><section class="cue-breakdown" aria-label="Model cue breakdown"><h3>What moved the meter</h3><p id="cue-note">Lock a statement to see the four model cues and their weights.</p><ol id="cue-rows"></ol></section></div>
           <div class="verdict" id="verdict" aria-live="polite">Three statements. Two truths. One very expressive robot.</div>
+          <p id="final-cue" class="final-cue" hidden></p>
         </section>
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
@@ -85,6 +87,9 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   const leaderboardStatus = q<HTMLElement>("#leaderboard-status");
   const clipStatus = q<HTMLElement>("#clip-status");
   const traceStatus = q<HTMLElement>("#trace-status");
+  const cueRows = q<HTMLOListElement>("#cue-rows");
+  const cueNote = q<HTMLElement>("#cue-note");
+  const finalCue = q<HTMLElement>("#final-cue");
   const traceTextConsent = q<HTMLInputElement>("#trace-text-consent");
   const downloadTraceButton = q<HTMLButtonElement>("#download-trace");
   const clearTraceButton = q<HTMLButtonElement>("#clear-trace");
@@ -205,6 +210,23 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>("#meter-fill").style.width = `${Math.round(p * 100)}%`;
     q<HTMLElement>("#meter").setAttribute("aria-valuenow", String(Math.round(p * 100)));
   }
+  function showCues(cues: Parameters<typeof cueBreakdown>[0], weights: Parameters<typeof cueBreakdown>[1], statementId: StatementId) {
+    const rows = cueBreakdown(cues, weights);
+    cueRows.replaceChildren(...rows.map((row) => {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = `${row.label} · ${Math.round(row.probability * 100)}% model score`;
+      const weight = document.createElement("span");
+      weight.textContent = `${Math.round(row.effectiveWeight * 100)}% weight · ${Math.round(row.contribution * 100)} meter points`;
+      const bar = document.createElement("progress");
+      bar.max = 100;
+      bar.value = Math.round(row.probability * 100);
+      bar.setAttribute("aria-label", `${row.label} model score`);
+      item.append(label, weight, bar);
+      return item;
+    }));
+    cueNote.textContent = `Statement ${statementId.slice(1)} · these are model judgments, not evidence of honesty.`;
+  }
   function neutralAfterReaction() {
     if (!robot) return;
     setTimeout(() => {
@@ -234,6 +256,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
       const recorded = round.submit(text, [], cues, liveSettings.weights);
       liveEvidence.push({ id, cues: { ...cues }, weights: { ...liveSettings.weights } });
       meter(recorded.pLie);
+      showCues(cues, liveSettings.weights, id);
       showSuspicion(robot, recorded.pLie);
       q<HTMLElement>("#verdict").textContent = recorded.pLie >= 0.7 ? "Those antennas are not buying it." : recorded.pLie >= 0.4 ? "Reachy has questions." : "Reachy seems relaxed. For now.";
       statement.value = "";
@@ -262,6 +285,10 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
         if (version !== roundVersion) return;
         const words = pick.source === "fallback" ? `Jev is unavailable. Random pick: number ${pick.choice.slice(1)}.` : pick.style === "confident" ? `Number ${pick.choice.slice(1)}. That's my pick.` : pick.style === "hedge" ? `I'd say number ${pick.choice.slice(1)}, but you're good.` : `Honestly? Coin flip. Number ${pick.choice.slice(1)}.`;
         q<HTMLElement>("#verdict").textContent = words;
+        finalCue.hidden = pick.source !== "jev";
+        finalCue.textContent = pick.source === "jev" && finalEvidence
+          ? `Jev highlighted ${finalCueLabel(finalEvidence.topCue)} for its game pick. That cue is not evidence that anyone lied.`
+          : "";
         speakLocal(words);
         round.commitDone();
       } else neutralAfterReaction();
@@ -324,6 +351,10 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     meter(0);
     q<HTMLElement>("#meter-value").textContent = "—";
     q<HTMLElement>("#verdict").textContent = "Three statements. Two truths. One very expressive robot.";
+    cueRows.replaceChildren();
+    cueNote.textContent = "Lock a statement to see the four model cues and their weights.";
+    finalCue.textContent = "";
+    finalCue.hidden = true;
     robot?.gotoTarget(toSdkTarget({ yawDeg: 0, pitchDeg: 0, rollDeg: 0, zMm: 0, rightAntennaDeg: 0, leftAntennaDeg: 0 }, 0.6));
     neutralReadyAt = performance.now() + 900;
     announce("New round ready.");

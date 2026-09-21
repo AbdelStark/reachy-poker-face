@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show all four text-model cue scores, normalized weights, and meter contributions; label the composite as a game score rather than a calibrated probability. Show the final model-selected cue only for a Jev-backed pick.
 - Add session-only JSONL round traces with text excluded by default and explicit per-round text consent.
 - Add a schema-checked, synthetic-tested offline calibration reader that excludes fallback picks and separates models; no live evaluation result.
 
