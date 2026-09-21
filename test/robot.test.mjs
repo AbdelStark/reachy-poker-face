@@ -24,7 +24,14 @@ test("coin flip stops sending commands after app cleanup", async () => {
   let calls = 0;
   let active = true;
   const robot = { state: "streaming", gotoTarget() { calls++; return true; } };
-  await performCoinFlip(robot, async () => { active = false; }, () => active);
+  assert.equal(await performCoinFlip(robot, async () => { active = false; }, () => active), false);
+  assert.equal(calls, 1);
+});
+
+test("coin flip reports a rejected pose so the app can disarm", async () => {
+  let calls = 0;
+  const robot = { state: "streaming", gotoTarget() { calls++; return false; } };
+  assert.equal(await performCoinFlip(robot, async () => {}), false);
   assert.equal(calls, 1);
 });
 

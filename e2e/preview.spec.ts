@@ -81,6 +81,85 @@ async function attachSyntheticVideo(page: Page) {
   });
 }
 
+test("connected game keeps motion and antenna-tap start off until session arm", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const commands: unknown[] = [];
+    const robot = Object.assign(new EventTarget(), {
+      state: "streaming",
+      subscribePose() {},
+      unsubscribePose() {},
+      gotoTarget(target: unknown) { commands.push(target); return true; },
+    });
+    const { mountApp } = await import("/src/embed.ts");
+    const cleanup = mountApp(robot as never, { attachVideo: () => () => {} } as never);
+    (window as unknown as { fakeMotion: { commands: unknown[]; robot: EventTarget; cleanup: () => void } }).fakeMotion = { commands, robot, cleanup };
+  });
+  const commands = () => page.evaluate(() => (window as unknown as { fakeMotion: { commands: unknown[] } }).fakeMotion.commands.length);
+  expect(await commands()).toBe(0);
+  await page.evaluate(() => {
+    const robot = (window as unknown as { fakeMotion: { robot: EventTarget } }).fakeMotion.robot;
+    robot.dispatchEvent(new CustomEvent("state", { detail: { antennas: [0.4, 0] } }));
+    robot.dispatchEvent(new CustomEvent("state", { detail: { antennas: [0.4, 0] } }));
+  });
+  await expect(page.locator("#phase")).toHaveText("Ready when you are.");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await page.locator("#statement").fill("I once climbed a mountain");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#statements li")).toHaveCount(1);
+  await page.waitForTimeout(750);
+  expect(await commands()).toBe(0);
+  await page.locator("#motion-enable").check();
+  expect(await commands()).toBe(1); // Neutral pose is first requested after the explicit arm.
+  await page.locator("#motion-enable").uncheck();
+  await page.locator("#statement").fill("I once met a dragon");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#statements li")).toHaveCount(2);
+  await page.waitForTimeout(750);
+  expect(await commands()).toBe(1);
+  await page.locator("#motion-enable").check();
+  expect(await commands()).toBe(2);
+  await page.locator("#statement").fill("I once grew a tomato");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#reveal")).toBeVisible();
+  expect(await commands()).toBeGreaterThan(2);
+  await page.locator("#motion-enable").uncheck();
+  const countBeforeLeave = await commands();
+  await page.evaluate(() => (window as unknown as { fakeMotion: { cleanup: () => void } }).fakeMotion.cleanup());
+  expect(await commands()).toBe(countBeforeLeave);
+});
+
+test("a rejected game pose disarms motion without losing the text round", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    let commands = 0;
+    const robot = {
+      state: "streaming",
+      subscribePose() {}, unsubscribePose() {}, addEventListener() {}, removeEventListener() {},
+      gotoTarget() { if (++commands > 1) throw new Error("synthetic SDK pose failure"); return true; },
+    };
+    const { mountApp } = await import("/src/embed.ts");
+    (window as unknown as { failedMotionCleanup: () => void }).failedMotionCleanup = mountApp(robot as never, { attachVideo: () => () => {} } as never);
+  });
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.locator("#motion-enable").check();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  for (const [index, statement] of ["I once climbed a mountain", "I once met a dragon", "I once grew a tomato"].entries()) {
+    await page.locator("#statement").fill(statement);
+    await page.getByRole("button", { name: "Lock statement" }).click();
+    await expect(page.locator("#statements li")).toHaveCount(index + 1);
+  }
+  await expect(page.locator("#motion-enable")).not.toBeChecked();
+  await expect(page.locator("#motion-status")).toContainText("Motion request failed");
+  await expect(page.locator("#reveal")).toBeVisible();
+  await page.evaluate(() => (window as unknown as { failedMotionCleanup: () => void }).failedMotionCleanup());
+});
+
 test("preview renders and saves validated game settings", async ({ page }) => {
   await page.goto("/?preview=1");
   await expect(page.getByRole("heading", { name: "Poker Face" })).toBeVisible();
