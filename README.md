@@ -2,7 +2,7 @@
 
 A two-truths-and-a-lie game where Reachy Mini's body language shows uncertainty instead of pretending to know the truth. This is not a lie detector: the judgments concern language and delivery cues, not a person's honesty.
 
-The current package is a tested game engine, not yet a playable robot app. It contains the round state machine, timing buckets, cue composite, and confidence-gated commit policy. Browser capture, Jev calls, robot motion, sound, and clip export remain in development; no accuracy or calibration result is claimed.
+The current package is a tested game engine with SDK-shaped Jev question banks, not yet a playable robot app. It contains the round state machine, timing buckets, cue composite, per-statement and final Jev calls, and confidence-gated commit policy. Browser capture, robot motion, sound, and clip export remain in development; no live Jev run, accuracy, or calibration result is claimed.
 
 ## Rules
 
