@@ -15,6 +15,17 @@ from typing import Any
 
 SCHEMA = "pokerface.round@1"
 IDS = {"s1", "s2", "s3"}
+HIGH_CONFIDENCE_THRESHOLD = 0.7
+
+
+def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject ambiguous JSONL rather than silently accepting a later value."""
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON key")
+        value[key] = item
+    return value
 
 
 def parse_record(
@@ -51,9 +62,17 @@ def parse_record(
     ):
         raise ValueError(f"line {line_number}: invalid choice or reveal")
     if pick["source"] == "fallback":
-        if pick.get("confidence") != 0 or "model" in pick:
+        if (
+            type(pick.get("confidence")) not in (int, float)
+            or pick["confidence"] != 0
+            or pick.get("style") not in (None, "coin_flip")
+            or any(
+                key in pick
+                for key in ("model", "topCue", "contradiction", "thresholds")
+            )
+        ):
             raise ValueError(
-                f"line {line_number}: fallback must have no model confidence"
+                f"line {line_number}: fallback must have no model evidence or confidence"
             )
         return "fallback", None, None, None
     model, confidence = pick.get("model"), pick.get("confidence")
@@ -85,6 +104,13 @@ def wilson_interval(successes: int, count: int) -> list[float] | None:
 def model_report(rows: list[tuple[float, bool]], bins: int) -> dict[str, Any]:
     count = len(rows)
     successes = sum(correct for _, correct in rows)
+    high_confidence = [
+        correct
+        for confidence, correct in rows
+        if confidence > HIGH_CONFIDENCE_THRESHOLD
+    ]
+    high_count = len(high_confidence)
+    high_correct = sum(high_confidence)
     reliability = []
     ece = 0.0
     for index in range(bins):
@@ -112,6 +138,14 @@ def model_report(rows: list[tuple[float, bool]], bins: int) -> dict[str, Any]:
         "correct": successes,
         "accuracy": successes / count,
         "wilson_95": wilson_interval(successes, count),
+        "high_confidence": {
+            "threshold_exclusive": HIGH_CONFIDENCE_THRESHOLD,
+            "count": high_count,
+            "correct": high_correct,
+            "coverage": high_count / count,
+            "accuracy": high_correct / high_count if high_count else None,
+            "wilson_95": wilson_interval(high_correct, high_count),
+        },
         "mean_confidence": sum(confidence for confidence, _ in rows) / count,
         "binary_brier": sum(
             (confidence - int(correct)) ** 2 for confidence, correct in rows
@@ -131,9 +165,11 @@ def analyze(lines: list[str], bins: int = 10) -> dict[str, Any]:
         if not line.strip():
             continue
         try:
-            value = json.loads(line)
+            value = json.loads(line, object_pairs_hook=unique_object)
         except json.JSONDecodeError as exc:
             raise ValueError(f"line {number}: invalid JSON") from exc
+        except ValueError as exc:
+            raise ValueError(f"line {number}: {exc}") from exc
         source, model, confidence, correct = parse_record(value, number)
         if source == "fallback":
             fallback += 1
@@ -147,7 +183,7 @@ def analyze(lines: list[str], bins: int = 10) -> dict[str, Any]:
         "models": {
             model: model_report(rows, bins) for model, rows in sorted(by_model.items())
         },
-        "interpretation": "Descriptive, per-model final-pick calibration only; not lie detection or a validated benchmark.",
+        "interpretation": "Descriptive, per-model final-pick diagnostics only; high-confidence uses confidence > 0.70 and is not a target pass/fail. No independently verified labels, sampling, or lie-detection claim is implied.",
     }
 
 
