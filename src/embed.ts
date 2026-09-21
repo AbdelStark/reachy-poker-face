@@ -579,6 +579,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     cancelBrowserRecognition();
     round = new Round();
     statement.value = "";
+    nickname.value = "";
+    leaderboardStatus.textContent = "";
+    leaderboardStatus.classList.remove("error");
     meter(0);
     q<HTMLElement>("#meter-value").textContent = "—";
     q<HTMLElement>("#verdict").textContent = "Three statements. Two truths. One very expressive robot.";

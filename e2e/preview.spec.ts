@@ -583,6 +583,29 @@ test("a Jev-backed round updates the local leaderboard without saving statements
   expect(await page.evaluate(() => localStorage.getItem("reachy-poker-face.leaderboard.v1"))).toBeNull();
 });
 
+test("a new round does not inherit the previous player's leaderboard nickname", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await playThreeStatements(page);
+  await page.locator("#nickname").fill("Ada");
+  await page.locator('button[data-lie="s1"]').click();
+  await expect(page.locator("#leaderboard li")).toContainText("Ada · fooled Reachy 1/1 rounds");
+
+  await page.getByRole("button", { name: "New round" }).click();
+  await expect(page.locator("#nickname")).toBeEmpty();
+  await expect(page.locator("#leaderboard-status")).toBeEmpty();
+  await startRound(page);
+  for (const [index, statement] of ["I once climbed a mountain", "I once met a dragon", "I once grew a tomato"].entries()) {
+    await page.locator("#statement").fill(statement);
+    await page.getByRole("button", { name: "Lock statement" }).click();
+    await expect(page.locator("#statements li")).toHaveCount(index + 1);
+  }
+  await expect(page.locator("#reveal")).toBeVisible();
+  await page.locator('button[data-lie="s1"]').click();
+  await expect(page.locator("#leaderboard li")).toHaveCount(1);
+  await expect(page.locator("#leaderboard li")).toContainText("Ada · fooled Reachy 1/1 rounds");
+});
+
 test("an explicitly consented round offers a silent local clip download", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
