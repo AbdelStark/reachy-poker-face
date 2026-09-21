@@ -16,6 +16,10 @@ tags:
 
 A two-truths-and-a-lie game in which Reachy Mini shows uncertainty through its head and antennas. Jev judges *which story sounds most like the invented one in this game*. It does not detect lies or assess a person's honesty.
 
+![Poker Face browser fixture preview: the game cue meter after one typed statement](docs/fixture-preview.png)
+
+_Browser fixture after one typed statement. The relay answer is synthetic; no Jev call, robot, or real player was involved. The meter is a game cue, not a lie probability._
+
 The browser app has a Reachy Mini host shell, camera view, text capture, optional browser speech transcription, an opt-in local robot-audio ASR path with word timing, optional robot-speaker game lines through a local TTS companion, an expressive game-cue meter with a four-cue breakdown, configurable cue weights and commit thresholds, a final pick, an optional local nickname leaderboard, consent-gated silent clip capture, and a local round-trace export. A narrow server-side relay keeps the TypeSafe API key out of the browser. If Jev is unavailable at the final pick, the app says so and makes a random theatrical pick; that round is not ranked or counted as a Jev judgment.
 
 This is a development preview, not a hardware-tested release. The UI and core tests run without a robot; synthetic browser streams cover local clip encoding and robot-audio PCM capture, but actual robot-camera capture, microphone quality, antenna-tap behavior, motion, speaker output, and the host shell need a real Reachy Mini validation pass. The local ASR API is fake-model and installed-package tested, **not** tested for recognition quality or timing accuracy on a real model/robot. The robot-speaker path has local WAV and fake-SDK tests, not a live playback result. The calibration reader is tested on synthetic records only; no accuracy or live-robot result is claimed.
