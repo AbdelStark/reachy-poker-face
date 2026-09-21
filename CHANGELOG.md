@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an immediate in-round stop-and-discard control for consented local clips, plus deletion of a finished clip before download; the game continues and the browser test covers both states.
 - Speak the final Jev cue through a bounded fixed template that labels it a game guess, not proof; fallback picks remain explicitly random and never speak a model cue or player statement. Share one cue vocabulary between visible and spoken explanations and cover the robot-speaker request in a fake-host browser test.
 - Keep robot motion off on connection until an explicit session arm; gate neutral, live reactions, coin flips, reset/leave poses, and antenna taps, with a fake-robot browser command-boundary test. No physical stop or hardware validation is implied.
 - Verify consented synthetic downloads with `ffprobe` for container, dimensions, duration, and no audio; fall back to WebM if an advertised MP4 encoder cannot initialize, and discard recordings above 16 MB.

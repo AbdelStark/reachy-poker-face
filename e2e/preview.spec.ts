@@ -317,6 +317,58 @@ test("silent clip recorder requires consent and produces a local video blob", as
   expect(result.discarded).toBeNull();
 });
 
+test("clip consent can be withdrawn mid-round without ending the game", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await attachSyntheticVideo(page);
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.locator("#clip-consent").check();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await expect(page.locator("#clip-status")).toContainText("Recording silent local clip");
+  await expect(page.locator("#discard-clip")).toBeVisible();
+  await page.getByRole("button", { name: "Stop and discard clip" }).click();
+  await expect(page.locator("#discard-clip")).toBeHidden();
+  await expect(page.locator("#download-clip")).toBeHidden();
+  await expect(page.locator("#clip-status")).toContainText("clip discarded");
+  await expect(page.locator("#phase")).toContainText("Statement 1 of 3");
+  for (const [index, statement] of ["I climbed a mountain", "I met a dragon", "I grew a tomato"].entries()) {
+    await page.locator("#statement").fill(statement);
+    await page.getByRole("button", { name: "Lock statement" }).click();
+    await expect(page.locator("#statements li")).toHaveCount(index + 1);
+  }
+  await expect(page.locator("#reveal")).toBeVisible();
+  await page.locator("#reveal button[data-lie=s2]").click();
+  await expect(page.locator("#phase")).toHaveText("Round complete.");
+  await expect(page.locator("#download-clip")).toBeHidden();
+  await expect(page.locator("#discard-clip")).toBeHidden();
+
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.locator("#clip-consent").check();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  for (const [index, statement] of ["I swam a lake", "I flew to Mars", "I planted a tree"].entries()) {
+    await page.locator("#statement").fill(statement);
+    await page.getByRole("button", { name: "Lock statement" }).click();
+    await expect(page.locator("#statements li")).toHaveCount(index + 1);
+  }
+  await expect(page.locator("#reveal")).toBeVisible();
+  await page.locator("#reveal button[data-lie=s2]").click();
+  await expect(page.locator("#download-clip")).toBeVisible({ timeout: 7_000 });
+  await page.getByRole("button", { name: "Discard local clip" }).click();
+  await expect(page.locator("#download-clip")).toBeHidden();
+  await expect(page.locator("#discard-clip")).toBeHidden();
+  await expect(page.locator("#clip-status")).toContainText("clip discarded");
+  const exportAttempted = await page.evaluate(() => {
+    const original = URL.createObjectURL;
+    let called = false;
+    URL.createObjectURL = () => { called = true; return "blob:fixture"; };
+    try { document.querySelector<HTMLButtonElement>("#download-clip")!.click(); }
+    finally { URL.createObjectURL = original; }
+    return called;
+  });
+  expect(exportAttempted).toBe(false);
+});
+
 test("clip capture falls back to WebM when advertised MP4 construction fails", async ({ page }) => {
   await page.goto("/?preview=1");
   const result = await page.evaluate(async () => {
