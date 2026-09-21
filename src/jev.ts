@@ -67,14 +67,38 @@ export function finalState(statements: readonly Statement[]) {
 export const finalQuestions = {
   contradiction: { type: "noul", instructions: "Do any two statements contradict each other about the same fact?" },
   the_lie: { type: "choice", instructions: "Which of the three statements is most likely the invented one in this game? Choose one even if uncertain.", criteria: { s1: null, s2: null, s3: null } },
+  commit_style: {
+    type: "choice",
+    instructions: "What theatrical commitment style fits this game pick: confident, hedge, or coin_flip? This is only a model suggestion; code chooses the actual style from the_lie confidence.",
+    criteria: { confident: null, hedge: null, coin_flip: null },
+  },
   top_cue: { type: "choice", instructions: "Which single cue most influenced that pick? Choose none if no cue stands out.", criteria: { hedging: null, implausibility: null, over_detail: null, vagueness: null, contradiction: null, none: null } },
 } as const;
-export interface FinalJudgment { choice: StatementId; confidence: number; topCue: string; contradiction: number; model: string }
+export interface FinalJudgment {
+  choice: StatementId;
+  confidence: number;
+  modelCommitStyle: "confident" | "hedge" | "coin_flip";
+  topCue: string;
+  contradiction: number;
+  model: string;
+}
 export async function askFinal(client: JevPort, statements: readonly Statement[], signal?: AbortSignal): Promise<FinalJudgment> {
   const response = await client.systemOne({ state: finalState(statements), questions: finalQuestions }, signal);
   const theLie = answer(response, "the_lie", "choice");
+  const commitStyle = answer(response, "commit_style", "choice");
   const topCue = answer(response, "top_cue", "choice");
   const contradiction = answer(response, "contradiction", "noul");
-  if (!theLie.choice || !["s1", "s2", "s3"].includes(theLie.choice) || !topCue.choice || !["hedging", "implausibility", "over_detail", "vagueness", "contradiction", "none"].includes(topCue.choice)) throw new TypeError("invalid Jev final choice");
-  return { choice: theLie.choice as StatementId, confidence: probability(theLie.confidence), topCue: topCue.choice, contradiction: probability(contradiction.noul), model: response.model };
+  if (
+    !theLie.choice || !["s1", "s2", "s3"].includes(theLie.choice)
+    || !commitStyle.choice || !["confident", "hedge", "coin_flip"].includes(commitStyle.choice)
+    || !topCue.choice || !["hedging", "implausibility", "over_detail", "vagueness", "contradiction", "none"].includes(topCue.choice)
+  ) throw new TypeError("invalid Jev final choice");
+  return {
+    choice: theLie.choice as StatementId,
+    confidence: probability(theLie.confidence),
+    modelCommitStyle: commitStyle.choice as FinalJudgment["modelCommitStyle"],
+    topCue: topCue.choice,
+    contradiction: probability(contradiction.noul),
+    model: response.model,
+  };
 }

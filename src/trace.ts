@@ -10,7 +10,18 @@ export interface TraceStatement extends LiveEvidence { pLie: number; delivery: r
 export interface RoundTrace {
   schema: typeof TRACE_SCHEMA;
   statements: readonly TraceStatement[];
-  pick: { source: "jev" | "fallback"; choice: StatementId; confidence: number; style: "confident" | "hedge" | "coin_flip"; model?: string; topCue?: string; contradiction?: number; thresholds?: CommitThresholds };
+  pick: {
+    source: "jev" | "fallback";
+    choice: StatementId;
+    confidence: number;
+    style: "confident" | "hedge" | "coin_flip";
+    model?: string;
+    modelCommitStyle?: FinalJudgment["modelCommitStyle"];
+    styleDisagrees?: boolean;
+    topCue?: string;
+    contradiction?: number;
+    thresholds?: CommitThresholds;
+  };
   actualLie: StatementId;
   correct: boolean;
 }
@@ -57,7 +68,13 @@ export class SessionTrace {
         choice: pick.choice,
         confidence: pick.confidence,
         style: pick.style,
-        ...(final ? { model: final.model, topCue: final.topCue, contradiction: final.contradiction } : {}),
+        ...(final ? {
+          model: final.model,
+          modelCommitStyle: final.modelCommitStyle,
+          styleDisagrees: final.modelCommitStyle !== pick.style,
+          topCue: final.topCue,
+          contradiction: final.contradiction,
+        } : {}),
         ...(thresholds ? { thresholds: { ...thresholds } } : {}),
       },
       actualLie: snapshot.actualLie,

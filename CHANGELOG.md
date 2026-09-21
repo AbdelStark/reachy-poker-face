@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Ask Jev for the final `commit_style` Choice and record whether its suggestion disagrees with the app's confidence-based style; keep the code rule authoritative and reject contradictory style evidence in calibration input.
 - Allow immediate round reset during a pending Jev call; abort the browser request, fence late answers and recognition callbacks, and let a new round proceed without waiting for the old result. Offline browser tests cover both races.
 - Report the strictly above-0.70 final-pick subset with count, coverage, accuracy, and Wilson interval per model; reject duplicate JSON keys and fallback records with impossible model evidence. Synthetic calculations only, no performance claim.
 - Add an immediate in-round stop-and-discard control for consented local clips, plus deletion of a finished clip before download; the game continues and the browser test covers both states.

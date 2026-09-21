@@ -18,13 +18,16 @@ function completedRound(fallback = false) {
   return round;
 }
 const live = ["s1", "s2", "s3"].map((id) => ({ id, cues, weights: DEFAULT_WEIGHTS }));
-const final = { choice: "s2", confidence: 0.8, topCue: "implausibility", contradiction: 0.1, model: "fixture" };
+const final = { choice: "s2", confidence: 0.8, modelCommitStyle: "hedge", topCue: "implausibility", contradiction: 0.1, model: "fixture" };
 
 test("session trace is text-free by default and keeps model provenance", () => {
   const recorder = new SessionTrace();
   const record = recorder.add(completedRound().snapshot, live, final, DEFAULT_THRESHOLDS);
   assert.equal(record.schema, TRACE_SCHEMA);
   assert.equal(record.pick.model, "fixture");
+  assert.equal(record.pick.style, "confident");
+  assert.equal(record.pick.modelCommitStyle, "hedge");
+  assert.equal(record.pick.styleDisagrees, true);
   assert.equal(record.correct, true);
   assert.equal(recorder.count, 1);
   const jsonl = recorder.toJSONL();
@@ -43,10 +46,20 @@ test("text needs explicit per-round consent; fallback stays distinguishable", ()
   const fallback = recorder.add(completedRound(true).snapshot, live);
   assert.equal(fallback.pick.source, "fallback");
   assert.equal(fallback.pick.model, undefined);
+  assert.equal(fallback.pick.modelCommitStyle, undefined);
+  assert.equal(fallback.pick.styleDisagrees, undefined);
   assert.equal(fallback.pick.confidence, 0);
   recorder.clear();
   assert.equal(recorder.count, 0);
   assert.equal(recorder.toJSONL(), "");
+});
+
+test("model style agreement is recorded without overriding the code rule", () => {
+  const recorder = new SessionTrace();
+  const record = recorder.add(completedRound().snapshot, live, { ...final, modelCommitStyle: "confident" }, DEFAULT_THRESHOLDS);
+  assert.equal(record.pick.style, "confident");
+  assert.equal(record.pick.modelCommitStyle, "confident");
+  assert.equal(record.pick.styleDisagrees, false);
 });
 
 test("trace rejects partial rounds and mismatched evidence", () => {

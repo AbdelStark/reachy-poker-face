@@ -40,6 +40,7 @@ async function mockRelay(page: Page, failFinal = false) {
       return route.fulfill({ status: 200, headers, body: JSON.stringify({ model: "fixture", answers: {
         contradiction: { type: "noul", noul: 0.1 },
         the_lie: { type: "choice", choice: "s2", confidence: 0.8 },
+        commit_style: { type: "choice", choice: "hedge", confidence: 0.8 },
         top_cue: { type: "choice", choice: "implausibility", confidence: 0.8 },
       } }) });
     }
@@ -627,7 +628,10 @@ test("default session trace download is text-free and keeps final provenance", a
   const jsonl = await readFile(await download.path(), "utf8");
   const record = JSON.parse(jsonl.trim());
   expect(record.schema).toBe("pokerface.round@1");
-  expect(record.pick).toMatchObject({ source: "jev", choice: "s2", model: "fixture" });
+  expect(record.pick).toMatchObject({
+    source: "jev", choice: "s2", model: "fixture",
+    style: "confident", modelCommitStyle: "hedge", styleDisagrees: true,
+  });
   expect(record.correct).toBe(true);
   expect(jsonl).not.toContain("mountain");
   expect(jsonl).not.toContain("dragon");

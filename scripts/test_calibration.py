@@ -108,12 +108,29 @@ class CalibrationTests(unittest.TestCase):
             {"confidence": False},
             {"style": "confident"},
             {"topCue": "hedging"},
+            {"modelCommitStyle": "hedge"},
+            {"styleDisagrees": True},
             {"thresholds": {"confident": 0.7}},
         ):
             with self.subTest(bad_pick=bad_pick):
                 value = {**fallback, "pick": {**fallback["pick"], **bad_pick}}
                 with self.assertRaisesRegex(ValueError, "fallback must have no model"):
                     parse_record(value, 1)
+
+    def test_model_style_disagreement_must_match_recorded_rule_style(self) -> None:
+        value = json.loads(record("s2", "s2"))
+        value["pick"].update(
+            {"style": "confident", "modelCommitStyle": "hedge", "styleDisagrees": True}
+        )
+        self.assertEqual(parse_record(value, 1)[0], "jev")
+        for bad_pick in (
+            {"styleDisagrees": False},
+            {"modelCommitStyle": "untrusted style"},
+            {"style": "untrusted style"},
+        ):
+            with self.subTest(bad_pick=bad_pick):
+                with self.assertRaisesRegex(ValueError, "inconsistent model style"):
+                    parse_record({**value, "pick": {**value["pick"], **bad_pick}}, 1)
 
     def test_malformed_or_mislabelled_data_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid JSON"):

@@ -31,16 +31,21 @@ test("live question bank uses the actual SDK wire shape", async () => {
   assert.equal(liveState(captured, []).bank, "pokerface.live@0.1.0");
 });
 
-test("final request asks one three-way Choice and rejects malformed picks", async () => {
+test("final request asks for a game pick and model style suggestion", async () => {
   const client = { systemOne: async () => ({ model: "jev-test", answers: {
-    the_lie: { type: "choice", choice: "s2", confidence: 0.65 }, top_cue: { type: "choice", choice: "implausibility" }, contradiction: { type: "noul", noul: 0.1 },
+    the_lie: { type: "choice", choice: "s2", confidence: 0.65 }, commit_style: { type: "choice", choice: "confident" }, top_cue: { type: "choice", choice: "implausibility" }, contradiction: { type: "noul", noul: 0.1 },
   } }) };
   assert.deepEqual(finalQuestions.the_lie.criteria, { s1: null, s2: null, s3: null });
+  assert.deepEqual(finalQuestions.commit_style.criteria, { confident: null, hedge: null, coin_flip: null });
   assert.equal(finalState(statements).statements.length, 3);
   const result = await askFinal(client, statements);
   assert.equal(result.choice, "s2");
   assert.equal(result.confidence, 0.65);
+  assert.equal(result.modelCommitStyle, "confident");
   await assert.rejects(() => askFinal({ systemOne: async () => ({ model: "bad", answers: {
-    the_lie: { type: "choice", choice: "s4", confidence: 0.9 }, top_cue: { type: "choice", choice: "none" }, contradiction: { type: "noul", noul: 0 },
+    the_lie: { type: "choice", choice: "s4", confidence: 0.9 }, commit_style: { type: "choice", choice: "confident" }, top_cue: { type: "choice", choice: "none" }, contradiction: { type: "noul", noul: 0 },
+  } }) }, statements), TypeError);
+  await assert.rejects(() => askFinal({ systemOne: async () => ({ model: "bad", answers: {
+    the_lie: { type: "choice", choice: "s2", confidence: 0.9 }, commit_style: { type: "choice", choice: "PRIVATE_UNTRUSTED_TEXT" }, top_cue: { type: "choice", choice: "none" }, contradiction: { type: "noul", noul: 0 },
   } }) }, statements), TypeError);
 });
