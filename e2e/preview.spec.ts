@@ -42,6 +42,22 @@ async function playThreeStatements(page: Page) {
   await expect(page.locator("#reveal")).toBeVisible();
 }
 
+async function attachSyntheticVideo(page: Page) {
+  await expect(page.locator("#robot-video")).toBeAttached();
+  await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    canvas.getContext("2d")!.fillRect(0, 0, 640, 360);
+    const video = document.querySelector<HTMLVideoElement>("#robot-video")!;
+    video.srcObject = canvas.captureStream(30);
+    await video.play();
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
+    }
+  });
+}
+
 test("preview renders and saves validated game settings", async ({ page }) => {
   await page.goto("/?preview=1");
   await expect(page.getByRole("heading", { name: "Poker Face" })).toBeVisible();
@@ -69,6 +85,40 @@ test("preview fits a narrow phone viewport without horizontal scrolling", async 
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
 });
 
+test("silent clip recorder requires consent and produces a local video blob", async ({ page }) => {
+  await page.goto("/?preview=1");
+  const result = await page.evaluate(async () => {
+    const { ClipRecorder } = await import("/src/clip.ts");
+    const source = document.createElement("canvas");
+    source.width = 640;
+    source.height = 360;
+    source.getContext("2d")!.fillRect(0, 0, 640, 360);
+    const stream = source.captureStream(30);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.srcObject = stream;
+    await video.play();
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
+    }
+    let denied = false;
+    try { new ClipRecorder(video, () => ({ statementNumber: 1, probability: 0.5, verdict: "Test" }), false); }
+    catch { denied = true; }
+    const recorder = new ClipRecorder(video, () => ({ statementNumber: 1, probability: 0.5, verdict: "Test" }), true);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const file = await recorder.finish();
+    const discardedRecorder = new ClipRecorder(video, () => ({ statementNumber: 1, probability: 0.5, verdict: "Test" }), true);
+    const discarded = await discardedRecorder.discard();
+    stream.getTracks().forEach((track) => track.stop());
+    return { denied, size: file?.blob.size ?? 0, type: file?.blob.type ?? "", extension: file?.extension ?? "", discarded };
+  });
+  expect(result.denied).toBe(true);
+  expect(result.size).toBeGreaterThan(0);
+  expect(result.type).toMatch(/^video\//);
+  expect(["webm", "mp4"]).toContain(result.extension);
+  expect(result.discarded).toBeNull();
+});
+
 test("a Jev-backed round updates the local leaderboard without saving statements", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
@@ -83,6 +133,35 @@ test("a Jev-backed round updates the local leaderboard without saving statements
   await page.getByRole("button", { name: "Clear saved scores" }).click();
   await expect(page.locator("#leaderboard li")).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem("reachy-poker-face.leaderboard.v1"))).toBeNull();
+});
+
+test("an explicitly consented round offers a silent local clip download", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await attachSyntheticVideo(page);
+  await page.locator("#clip-consent").check();
+  await playThreeStatements(page);
+  await expect(page.locator("#clip-consent")).not.toBeChecked();
+  await page.locator('button[data-lie="s2"]').click();
+  await expect(page.getByRole("button", { name: "Download local clip" })).toBeVisible({ timeout: 6000 });
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download local clip" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^pokerface-.*\.(webm|mp4)$/);
+});
+
+test("reset discards a consented recording before export", async ({ page }) => {
+  await page.goto("/?preview=1");
+  await attachSyntheticVideo(page);
+  await page.locator("#clip-consent").check();
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.getByRole("button", { name: "Start a round" }).click();
+  await expect(page.locator("#clip-status")).toContainText("Recording silent");
+  await page.getByRole("button", { name: "New round" }).click();
+  await expect(page.locator("#clip-status")).toContainText("discarded");
+  await expect(page.locator("#download-clip")).toBeHidden();
+  await expect(page.locator("#clip-consent")).not.toBeChecked();
 });
 
 test("an unavailable final judgment is explicit and unranked", async ({ page }) => {

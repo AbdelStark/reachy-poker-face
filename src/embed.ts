@@ -6,6 +6,7 @@ import { RelayPort } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
 import { DEFAULT_SETTINGS, gameSettings, parseSettings, SETTINGS_KEY, type GameSettings } from "./settings.js";
 import { LEADERBOARD_KEY, parseLeaderboard, recordRound, type LeaderboardEntry } from "./leaderboard.js";
+import { ClipRecorder, type ClipFile } from "./clip.js";
 import "./style.css";
 
 type Robot = Awaited<ReturnType<typeof connectToHost>>["reachy"];
@@ -57,7 +58,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
-          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Microphone mode uses your browser's speech service, which may process audio off-device. No audio is recorded by this app. Antenna tap works only while the antennas are neutral.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
+          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, stop after 30 seconds, and stay in this tab until you download or discard them.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Microphone mode uses your browser's speech service, which may process audio off-device. No audio is recorded by this app. Antenna tap works only while the antennas are neutral.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
@@ -79,6 +80,8 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   const status = q<HTMLElement>("#status");
   const nickname = q<HTMLInputElement>("#nickname");
   const leaderboardStatus = q<HTMLElement>("#leaderboard-status");
+  const clipStatus = q<HTMLElement>("#clip-status");
+  const downloadClipButton = q<HTMLButtonElement>("#download-clip");
   const statement = q<HTMLTextAreaElement>("#statement");
   const video = q<HTMLVideoElement>("#robot-video");
   let round = new Round();
@@ -95,6 +98,9 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   let rounds = 0;
   let wins = 0;
   let fallbackRounds = 0;
+  let clipRecorder: ClipRecorder | undefined;
+  let clipFile: ClipFile | undefined;
+  let clipStopTimer: ReturnType<typeof setTimeout> | undefined;
   let recognition: Recognition | null = null;
   let micActive = false;
   let silenceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -122,6 +128,26 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   function announce(message: string, isError = false) {
     status.textContent = message;
     status.classList.toggle("error", isError);
+  }
+  async function finishClip() {
+    clearTimeout(clipStopTimer);
+    const recorder = clipRecorder;
+    if (!recorder) return;
+    const file = await recorder.finish();
+    if (clipRecorder !== recorder) return;
+    clipRecorder = undefined;
+    if (file) {
+      clipFile = file;
+      downloadClipButton.hidden = round.snapshot.phase !== "score";
+      clipStatus.textContent = downloadClipButton.hidden ? "Silent clip captured; download after the reveal." : `Silent ${file.extension.toUpperCase()} clip ready in this tab.`;
+    } else clipStatus.textContent = "Clip could not be recorded; no file was saved.";
+  }
+  function discardClip() {
+    clearTimeout(clipStopTimer);
+    if (clipRecorder) void clipRecorder.discard();
+    clipRecorder = undefined;
+    clipFile = undefined;
+    downloadClipButton.hidden = true;
   }
   function renderLeaderboard() {
     const list = q<HTMLOListElement>("#leaderboard");
@@ -225,6 +251,25 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     if (round.snapshot.phase !== "idle") return;
     round.start();
     round.introDone();
+    discardClip();
+    const clipConsent = q<HTMLInputElement>("#clip-consent");
+    const consentedForThisRound = clipConsent.checked;
+    clipConsent.checked = false;
+    if (consentedForThisRound) {
+      try {
+        clipRecorder = new ClipRecorder(video, () => ({
+          statementNumber: round.snapshot.statementNumber,
+          probability: round.snapshot.statements.at(-1)?.pLie ?? null,
+          verdict: q<HTMLElement>("#verdict").textContent ?? "",
+        }), true);
+        clipStatus.textContent = "Recording silent local clip (30-second maximum).";
+        clipStatus.classList.remove("error");
+        clipStopTimer = setTimeout(() => void finishClip(), 30_100);
+      } catch (error) {
+        clipStatus.textContent = error instanceof Error ? error.message : "Local clip recording unavailable.";
+        clipStatus.classList.add("error");
+      }
+    } else clipStatus.textContent = "No clip recording requested.";
     speakLocal(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
     disclaimerSpoken = true;
     announce("Tell the first statement. Use the button, microphone, or a gentle antenna tap.");
@@ -234,6 +279,9 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   function resetRound() {
     if (busy) return;
     roundVersion++;
+    const hadClip = Boolean(clipRecorder || clipFile);
+    discardClip();
+    clipStatus.textContent = hadClip ? "Previous clip discarded." : "No clip recording requested.";
     clearTimeout(silenceTimer);
     recognition?.stop();
     round = new Round();
@@ -277,6 +325,16 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   q<HTMLButtonElement>("#start").addEventListener("click", startRound);
   q<HTMLButtonElement>("#submit").addEventListener("click", () => void submitStatement());
   q<HTMLButtonElement>("#reset").addEventListener("click", resetRound);
+  downloadClipButton.addEventListener("click", () => {
+    if (!clipFile) return;
+    const url = URL.createObjectURL(clipFile.blob);
+    const anchor = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+    anchor.href = url;
+    anchor.download = `pokerface-${stamp}.${clipFile.extension}`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  });
   q<HTMLElement>("#reveal").addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-lie]");
     if (!button || round.snapshot.phase !== "reveal") return;
@@ -305,6 +363,14 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>("#verdict").textContent = words;
     speakLocal(words);
     announce(source === "fallback" ? "This was an unranked random pick, not a Jev judgment." : correct ? "Reachy picked the lie." : "You fooled Reachy.");
+    if (clipFile) {
+      downloadClipButton.hidden = false;
+      clipStatus.textContent = `Silent ${clipFile.extension.toUpperCase()} clip ready in this tab.`;
+    }
+    if (clipRecorder) {
+      clearTimeout(clipStopTimer);
+      clipStopTimer = setTimeout(() => void finishClip(), 3000);
+    }
     render();
   });
   q<HTMLButtonElement>("#clear-leaderboard").addEventListener("click", () => {
@@ -348,6 +414,7 @@ function mountApp(robot?: Robot, media?: RobotMedia) {
   render();
   return () => {
     roundVersion++;
+    discardClip();
     clearTimeout(silenceTimer);
     recognition?.stop();
     speechSynthesis.cancel();

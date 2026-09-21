@@ -50,6 +50,9 @@ button:not(:disabled):hover { transform: translateY(-1px); }
 .text-button { color: #b4c0d4; background: transparent; padding-left: 0; text-decoration: underline; }
 .phase { color: #e9ecf6; font-weight: 650; }
 .capture { margin-top: 18px; }
+.clip-consent { display: flex; align-items: flex-start; gap: 10px; line-height: 1.4; }
+.clip-consent input { width: auto; margin: 3px 0 0; accent-color: #f4c95d; }
+#download-clip { margin-top: 14px; }
 .capture-actions { display: flex; gap: 10px; }
 .capture-actions > button { flex: 1; }
 .capture .small { margin-top: 12px; }
