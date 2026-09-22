@@ -3,7 +3,7 @@ import { AntennaTap } from "./antenna.js";
 import { askFinal, askFinalWithRetry, askLive, type FinalJudgment, type JevPort } from "./jev.js";
 import { OfflineFixturePort } from "./fixture.js";
 import { performCoinFlip, showSuspicion, toSdkTarget } from "./motion.js";
-import { RelayPort } from "./relay.js";
+import { RelayLimitError, RelayPort } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
 import { DEFAULT_SETTINGS, gameSettings, parseSettings, SETTINGS_KEY, type GameSettings } from "./settings.js";
 import { LEADERBOARD_KEY, parseLeaderboard, recordRound, type LeaderboardEntry } from "./leaderboard.js";
@@ -547,7 +547,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
           finalEvidence = fixtureMode ? undefined : final;
           finalThresholds = fixtureMode ? undefined : { ...finalSettings.thresholds };
           if (retriedFinal) announce("Final Jev pick received on retry. A second model call may have been billed.");
-        } catch {
+        } catch (error) {
           if (version !== roundVersion) return;
           if (fixtureMode) {
             announce("Offline fixture failed; no random or Jev pick was substituted. Start a new round.", true);
@@ -556,7 +556,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
           pick = round.commitUnavailable(randomPick());
           finalEvidence = undefined;
           finalThresholds = undefined;
-          announce("Final Jev pick unavailable after two attempts; using an unranked random pick.", true);
+          announce(error instanceof RelayLimitError
+            ? "Jev relay limit reached; no retry sent. Using an unranked random pick. Check the local relay before another round."
+            : "Final Jev pick unavailable after two attempts; using an unranked random pick.", true);
         }
         if (motionVersion === motionEpoch && motionEnabled) {
           if (pick.style === "coin_flip") {
@@ -579,12 +581,14 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         void speakGame(words);
         round.commitDone();
       } else if (motionVersion === motionEpoch) neutralAfterReaction();
-    } catch {
+    } catch (error) {
       if (version === roundVersion) {
         if (motionVersion === motionEpoch && motionEnabled) commandNeutral(0.5);
         announce(fixtureMode
           ? "Offline fixture failed; the statement was not locked. Start a new round."
-          : "Jev did not return a usable cue answer. The statement was not locked; try again.", true);
+          : error instanceof RelayLimitError
+            ? "Jev relay limit reached; statement not locked. Wait for its rate window or restart/reconfigure the local attempt limit."
+            : "Jev did not return a usable cue answer. The statement was not locked; try again.", true);
       }
     } finally {
       if (jevAbort === controller) jevAbort = undefined;

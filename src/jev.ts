@@ -2,6 +2,7 @@ import type { EntryType, Questions } from "@typesafe-ai/sdk";
 import { toTypeSafeQuestions, type QuestionBank } from "reachy-jev";
 import type { CueProbabilities, DeliveryAnalysis } from "./cues.js";
 import type { Statement, StatementId } from "./round.js";
+import { RelayLimitError } from "./relay.js";
 
 export const LIVE_QUESTION_BANK = {
   bank: "pokerface.live",
@@ -113,7 +114,7 @@ export async function askFinal(client: JevPort, statements: readonly Statement[]
   };
 }
 
-/** One bounded final-pick retry; a reset/abort never starts another model call. */
+/** One bounded final-pick retry; reset/abort or a relay limit never starts another call. */
 export async function askFinalWithRetry(
   client: JevPort,
   statements: readonly Statement[],
@@ -127,7 +128,7 @@ export async function askFinalWithRetry(
       if (signal?.aborted) throw signal.reason ?? new Error("final judgment aborted");
       return judgment;
     } catch (error) {
-      if (signal?.aborted || attempt === 1) throw error;
+      if (signal?.aborted || error instanceof RelayLimitError || attempt === 1) throw error;
       onRetry?.();
     }
   }

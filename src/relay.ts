@@ -1,6 +1,13 @@
 import type { EntryType, Questions } from "@typesafe-ai/sdk";
 import type { JevPort, JevReply } from "./jev.js";
 
+export class RelayLimitError extends Error {
+  constructor() {
+    super("Jev relay request limit reached");
+    this.name = "RelayLimitError";
+  }
+}
+
 /** Browser transport for a separately hosted authenticated Jev relay. No API key enters the bundle. */
 export class RelayPort implements JevPort {
   private readonly endpoint: URL;
@@ -25,6 +32,7 @@ export class RelayPort implements JevPort {
         body: JSON.stringify(request),
         signal: controller.signal,
       });
+      if (response.status === 429) throw new RelayLimitError();
       if (!response.ok) throw new Error(`Jev relay returned HTTP ${response.status}`);
       const data: unknown = await response.json();
       if (!data || typeof data !== "object" || !("model" in data) || !("answers" in data) || typeof data.model !== "string" || !data.answers || typeof data.answers !== "object") throw new TypeError("invalid Jev relay response");

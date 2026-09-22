@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRelayServer } from "../server/relay.mjs";
-import { finalQuestions, finalState, liveQuestions, liveState } from "../lib/index.js";
+import { finalQuestions, finalState, liveQuestions, liveState, RelayLimitError, RelayPort } from "../lib/index.js";
 
 const TOKEN = "a".repeat(32);
 const ORIGIN = "http://127.0.0.1:5173";
@@ -131,5 +131,17 @@ test("relay degrades to a non-sensitive error on upstream failure", async () => 
     const response = await request(url);
     assert.equal(response.status, 503);
     assert.equal(JSON.stringify(await response.json()).includes("secret"), false);
+  });
+});
+
+test("browser transport identifies a relay limit without exposing a response body", async () => {
+  const port = new RelayPort("http://127.0.0.1:8047", TOKEN, async () => new Response(
+    JSON.stringify({ error: "upstream_attempt_limit", private_detail: "do not display" }),
+    { status: 429, headers: { "Content-Type": "application/json" } },
+  ));
+  await assert.rejects(() => port.systemOne(liveBody), (error) => {
+    assert.ok(error instanceof RelayLimitError);
+    assert.equal(error.message.includes("private_detail"), false);
+    return true;
   });
 });

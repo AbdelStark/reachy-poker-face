@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { analyzeDelivery, askLive, askFinal, askFinalWithRetry, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
+import { analyzeDelivery, askLive, askFinal, askFinalWithRetry, RelayLimitError, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
 
 const delivery = analyzeDelivery([
   { word: "I", startMs: 0, endMs: 100 },
@@ -95,4 +95,13 @@ test("final retry does not start a second call after reset abort", async () => {
   assert.equal(retries, 0);
   await assert.rejects(() => askFinalWithRetry(client, statements, abort.signal), /new round/);
   assert.equal(calls, 1);
+});
+
+test("final relay limit never starts a futile retry", async () => {
+  let calls = 0;
+  let retries = 0;
+  const client = { systemOne: async () => { calls++; throw new RelayLimitError(); } };
+  await assert.rejects(() => askFinalWithRetry(client, statements, undefined, () => { retries++; }), RelayLimitError);
+  assert.equal(calls, 1);
+  assert.equal(retries, 0);
 });
