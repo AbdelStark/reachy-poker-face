@@ -1,6 +1,6 @@
 /** Browser-local, consent-gated video capture. Never records microphone or robot audio. */
 export interface ClipFrame { statementNumber: number; probability: number | null; verdict: string }
-export interface ClipFile { blob: Blob; extension: "mp4" | "webm" }
+export interface ClipFile { blob: Blob; extension: "mp4" | "webm"; filename: string }
 
 const MAX_DURATION_MS = 30_000;
 const MAX_CLIP_BYTES = 16_000_000;
@@ -125,7 +125,8 @@ export class ClipRecorder {
     const blob = this.discarded ? null : new Blob(this.chunks, { type: this.recorder.mimeType });
     this.chunks.length = 0;
     this.bytes = 0;
-    this.resolveCompletion(blob?.size ? { blob, extension: this.extension } : null);
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+    this.resolveCompletion(blob?.size ? { blob, extension: this.extension, filename: `pokerface-${stamp}.${this.extension}` } : null);
   }
 
   finish(): Promise<ClipFile | null> {

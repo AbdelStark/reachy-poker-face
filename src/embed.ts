@@ -53,13 +53,9 @@ function createRecognition(): Recognition | null {
   const Ctor = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
   return Ctor ? new Ctor() : null;
 }
-function clipFilename(file: ClipFile): string {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-  return `pokerface-${stamp}.${file.extension}`;
-}
 function clipShareData(file: ClipFile): ShareData {
   const type = file.extension === "mp4" ? "video/mp4" : "video/webm";
-  return { title: "Reachy Poker Face", files: [new File([file.blob], clipFilename(file), { type })] };
+  return { title: "Reachy Poker Face", files: [new File([file.blob], file.filename, { type })] };
 }
 function canShareClip(file: ClipFile): boolean {
   if (typeof navigator.share !== "function" || typeof navigator.canShare !== "function") return false;
@@ -796,7 +792,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     const url = URL.createObjectURL(clipFile.blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = clipFilename(clipFile);
+    anchor.download = clipFile.filename;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   });

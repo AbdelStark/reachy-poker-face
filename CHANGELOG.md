@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep one filename for a completed local clip across repeated download/share attempts; a hosted browser test exposed a minute-boundary naming race, now covered by an explicit clock shift.
 - Cap valid upstream model-call attempts per relay process (30 by default, configurable), reserving before the call and counting failures; minute-window resets do not renew the cap. This is not a billing or token budget.
 - Pin the shared `reachy-jev` Unicode transcript-bound update, keeping this game's validated question-bank dependency aligned with the other Reachy apps; game behavior and live-model quality are not inferred from the dependency test.
 - Close the trace writer's output vocabulary: reject free-form delivery labels, extra cue/weight fields, malformed or unbounded provenance, and truthy non-boolean text consent before retaining JSONL. Keep consented statement text explicitly bounded; this is an export boundary, not tamper-evident provenance.

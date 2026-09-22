@@ -806,6 +806,12 @@ test("file-capable browsers offer an explicit share sheet and retain the clip af
   await page.locator("#share-clip").click();
   await expect(page.locator("#clip-status")).toContainText("Share cancelled");
   await expect(page.locator("#download-clip")).toBeVisible();
+  await page.evaluate(() => {
+    const OriginalDate = Date;
+    Object.assign(window, { Date: class extends OriginalDate {
+      constructor() { super(OriginalDate.now() + 120_000); }
+    } });
+  });
   await page.evaluate(() => { (window as unknown as { cancelShare: boolean }).cancelShare = false; });
   await page.locator("#share-clip").click();
   await expect(page.locator("#clip-status")).toContainText("Share sheet returned");
@@ -815,6 +821,9 @@ test("file-capable browsers offer an explicit share sheet and retain the clip af
   expect(calls[0]!.name).toMatch(/^pokerface-.*\.(mp4|webm)$/);
   expect(calls[0]!.type).toMatch(/^video\/(mp4|webm)$/);
   expect(calls[0]!.size).toBeGreaterThan(0);
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#download-clip").click();
+  expect((await downloadPromise).suggestedFilename()).toBe(calls[0]!.name);
   await page.evaluate(() => { (window as unknown as { failShareSynchronously: boolean }).failShareSynchronously = true; });
   await page.locator("#share-clip").click();
   await expect(page.locator("#clip-status")).toContainText("Sharing failed");
