@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { analyzeDelivery, askLive, askFinal, askFinalWithRetry, RelayLimitError, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
+import { analyzeDelivery, askLive, askFinal, askFinalWithRetry, RelayLimitError, RelayRequestRejectedError, LIVE_BANK, FINAL_BANK, LIVE_QUESTION_BANK, FINAL_QUESTION_BANK, liveQuestions, liveState, finalQuestions, finalState } from "../lib/index.js";
 
 const delivery = analyzeDelivery([
   { word: "I", startMs: 0, endMs: 100 },
@@ -104,4 +104,19 @@ test("final relay limit never starts a futile retry", async () => {
   await assert.rejects(() => askFinalWithRetry(client, statements, undefined, () => { retries++; }), RelayLimitError);
   assert.equal(calls, 1);
   assert.equal(retries, 0);
+});
+
+test("a persistent relay rejection never starts a futile final retry", async () => {
+  for (const status of [400, 401, 403, 404, 413]) {
+    let calls = 0;
+    let retries = 0;
+    const client = { systemOne: async () => { calls++; throw new RelayRequestRejectedError(status); } };
+    await assert.rejects(() => askFinalWithRetry(client, statements, undefined, () => { retries++; }), (error) => {
+      assert.ok(error instanceof RelayRequestRejectedError);
+      assert.equal(error.status, status);
+      return true;
+    });
+    assert.equal(calls, 1);
+    assert.equal(retries, 0);
+  }
 });

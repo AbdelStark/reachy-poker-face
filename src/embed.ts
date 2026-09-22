@@ -3,7 +3,7 @@ import { AntennaTap } from "./antenna.js";
 import { askFinal, askFinalWithRetry, askLive, type FinalJudgment, type JevPort } from "./jev.js";
 import { OfflineFixturePort } from "./fixture.js";
 import { performCoinFlip, showSuspicion, toSdkTarget } from "./motion.js";
-import { RelayLimitError, RelayPort } from "./relay.js";
+import { RelayLimitError, RelayPort, RelayRequestRejectedError } from "./relay.js";
 import { Round, type StatementId } from "./round.js";
 import { DEFAULT_SETTINGS, gameSettings, parseSettings, SETTINGS_KEY, type GameSettings } from "./settings.js";
 import { LEADERBOARD_KEY, parseLeaderboard, recordRound, type LeaderboardEntry } from "./leaderboard.js";
@@ -558,6 +558,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
           finalThresholds = undefined;
           announce(error instanceof RelayLimitError
             ? "Jev relay limit reached; no retry sent. Using an unranked random pick. Check the local relay before another round."
+            : error instanceof RelayRequestRejectedError
+              ? "Jev relay rejected the final request; no retry sent. Using an unranked random pick. Check the relay URL, token, allowed origin, and app/relay version."
             : "Final Jev pick unavailable after two attempts; using an unranked random pick.", true);
         }
         if (motionVersion === motionEpoch && motionEnabled) {
@@ -587,7 +589,9 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         announce(fixtureMode
           ? "Offline fixture failed; the statement was not locked. Start a new round."
           : error instanceof RelayLimitError
-            ? "Jev relay limit reached; statement not locked. Wait for its rate window or restart/reconfigure the local attempt limit."
+            ? "Jev relay limit reached; statement not locked. Let the relay recover or restart/reconfigure its process attempt cap."
+            : error instanceof RelayRequestRejectedError
+              ? "Jev relay rejected the request; statement not locked. Check the relay URL, token, allowed origin, and app/relay version."
             : "Jev did not return a usable cue answer. The statement was not locked; try again.", true);
       }
     } finally {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRelayServer } from "../server/relay.mjs";
-import { finalQuestions, finalState, liveQuestions, liveState, RelayLimitError, RelayPort } from "../lib/index.js";
+import { finalQuestions, finalState, liveQuestions, liveState, RelayLimitError, RelayPort, RelayRequestRejectedError } from "../lib/index.js";
 
 const TOKEN = "a".repeat(32);
 const ORIGIN = "http://127.0.0.1:5173";
@@ -144,4 +144,19 @@ test("browser transport identifies a relay limit without exposing a response bod
     assert.equal(error.message.includes("private_detail"), false);
     return true;
   });
+});
+
+test("browser transport identifies persistent relay rejection without exposing its body", async () => {
+  for (const status of [400, 401, 403, 404, 413]) {
+    const port = new RelayPort("http://127.0.0.1:8047", TOKEN, async () => new Response(
+      JSON.stringify({ error: "fixture", private_detail: "do not display" }),
+      { status, headers: { "Content-Type": "application/json" } },
+    ));
+    await assert.rejects(() => port.systemOne(liveBody), (error) => {
+      assert.ok(error instanceof RelayRequestRejectedError);
+      assert.equal(error.status, status);
+      assert.equal(error.message.includes("private_detail"), false);
+      return true;
+    });
+  }
 });

@@ -8,6 +8,13 @@ export class RelayLimitError extends Error {
   }
 }
 
+export class RelayRequestRejectedError extends Error {
+  constructor(readonly status: number) {
+    super(`Jev relay rejected request (HTTP ${status})`);
+    this.name = "RelayRequestRejectedError";
+  }
+}
+
 /** Browser transport for a separately hosted authenticated Jev relay. No API key enters the bundle. */
 export class RelayPort implements JevPort {
   private readonly endpoint: URL;
@@ -33,6 +40,9 @@ export class RelayPort implements JevPort {
         signal: controller.signal,
       });
       if (response.status === 429) throw new RelayLimitError();
+      if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+        throw new RelayRequestRejectedError(response.status);
+      }
       if (!response.ok) throw new Error(`Jev relay returned HTTP ${response.status}`);
       const data: unknown = await response.json();
       if (!data || typeof data !== "object" || !("model" in data) || !("answers" in data) || typeof data.model !== "string" || !data.answers || typeof data.answers !== "object") throw new TypeError("invalid Jev relay response");

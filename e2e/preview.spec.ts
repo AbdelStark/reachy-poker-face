@@ -385,6 +385,26 @@ test("a relay limit explains why a live statement remains unlocked", async ({ pa
   expect(posts).toBe(1);
 });
 
+test("a rejected live request leaves the statement unlocked with an actionable status", async ({ page }) => {
+  let posts = 0;
+  await page.route("http://127.0.0.1:8047/v1/systemone", async (route) => {
+    const headers = { "Access-Control-Allow-Origin": ORIGIN, "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    posts++;
+    return route.fulfill({ status: 401, headers, body: JSON.stringify({ error: "unauthorized", private_detail: "not for UI" }) });
+  });
+  await page.goto("/?preview=1");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await startRound(page);
+  await page.locator("#statement").fill("I once climbed a mountain");
+  await page.getByRole("button", { name: "Lock statement" }).click();
+  await expect(page.locator("#status")).toContainText("Jev relay rejected the request; statement not locked");
+  await expect(page.locator("#status")).not.toContainText("private_detail");
+  await expect(page.locator("#statements li")).toHaveCount(0);
+  expect(posts).toBe(1);
+});
+
 test("a rejected game pose disarms motion without losing the text round", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
@@ -909,6 +929,24 @@ test("a final relay limit makes one request and an explicit unranked fallback", 
   expect(finalPosts).toBe(1);
   await page.locator('button[data-lie="s2"]').click();
   await expect(page.locator("#score")).toContainText("1 fallback round");
+});
+
+test("a rejected final request skips retry and keeps the fallback unranked", async ({ page }) => {
+  await mockRelay(page);
+  let finalPosts = 0;
+  await page.route("http://127.0.0.1:8047/v1/systemone", async (route) => {
+    if (route.request().method() !== "POST" || !("the_lie" in route.request().postDataJSON().questions)) return route.fallback();
+    finalPosts++;
+    return route.fulfill({ status: 401, headers: { "Access-Control-Allow-Origin": ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ error: "unauthorized", private_detail: "not for UI" }) });
+  });
+  await page.goto("/?preview=1");
+  await playThreeStatements(page);
+  await expect(page.locator("#status")).toContainText("Jev relay rejected the final request; no retry sent");
+  await expect(page.locator("#status")).not.toContainText("private_detail");
+  expect(finalPosts).toBe(1);
+  await page.locator('button[data-lie="s2"]').click();
+  await expect(page.locator("#score")).toContainText("1 fallback round");
+  await expect(page.locator("#leaderboard li")).toHaveCount(0);
 });
 
 test("default session trace download is text-free and keeps final provenance", async ({ page }) => {
