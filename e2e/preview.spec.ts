@@ -157,6 +157,31 @@ test("opening line blocks capture and clip recording until the operator begins s
   await expect(page.locator("#clip-status")).toContainText("Recording silent local clip");
 });
 
+test("unavailable browser speech leaves the first disclaimer eligible for retry", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?preview=1");
+  await page.evaluate(() => {
+    Object.defineProperty(window, "speechSynthesis", { value: undefined, configurable: true });
+  });
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+  await page.locator("#start").click();
+  await page.getByRole("button", { name: "Begin statement 1" }).click();
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.evaluate(() => {
+    const spoken: string[] = [];
+    (window as unknown as { spokenLines: string[] }).spokenLines = spoken;
+    Object.defineProperty(window, "speechSynthesis", {
+      value: { cancel() {}, speak(utterance: SpeechSynthesisUtterance) { spoken.push(utterance.text); } },
+      configurable: true,
+    });
+  });
+  await page.locator("#start").click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { spokenLines: string[] }).spokenLines)).toEqual([
+    "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.",
+  ]);
+});
+
 test("new round cancels a pending judgment and ignores its late answer", async ({ page }) => {
   let firstStarted = false;
   let releaseFirst: (() => void) | undefined;
@@ -506,6 +531,101 @@ test("explicit robot-speaker mode cancels the opening line before capture", asyn
   await page.getByRole("button", { name: "Begin statement 1" }).click();
   expect(await page.evaluate(() => (window as unknown as { robotEvents: string[] }).robotEvents)).not.toContain("browser-speak");
   expect(requests).toBe(2);
+});
+
+test("failed robot opening retries the disclaimer without browser speech support", async ({ page }) => {
+  const wav = fixtureWav();
+  const spoken: string[] = [];
+  await page.route("http://127.0.0.1:8050/v1/tts", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "audio/wav",
+      "Content-Length": String(wav.length),
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    spoken.push(route.request().postDataJSON().text);
+    return route.fulfill(spoken.length === 1
+      ? { status: 503, headers, body: "" }
+      : { status: 200, headers, body: wav });
+  });
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    Object.defineProperty(window, "speechSynthesis", { value: undefined, configurable: true });
+    const robot = {
+      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      addEventListener() {}, removeEventListener() {},
+      uploadAudio: async () => "fixture-upload",
+      playUploadedAudio: async () => ({ started: true }),
+      cancelAudio: () => true,
+    };
+    const { mountApp } = await import("/src/embed.ts");
+    mountApp(robot as never, { attachVideo: () => () => {} } as never);
+  });
+  await page.locator("#tts-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Configure local TTS" }).click();
+  await page.locator("#tts-robot").check();
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+
+  await page.locator("#start").click();
+  await expect(page.locator("#tts-status")).toContainText("Robot speech failed");
+  await page.getByRole("button", { name: "Begin statement 1" }).click();
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.locator("#start").click();
+  await expect(page.locator("#tts-status")).toContainText("playback started");
+  expect(spoken).toEqual([
+    "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.",
+    "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.",
+  ]);
+});
+
+test("switching speaker mode cancels the disclaimer without consuming it", async ({ page }) => {
+  const wav = fixtureWav();
+  const spoken: string[] = [];
+  await page.route("http://127.0.0.1:8050/v1/tts", async (route) => {
+    const headers = {
+      "Access-Control-Allow-Origin": ORIGIN,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Content-Type": "audio/wav",
+      "Content-Length": String(wav.length),
+    };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    spoken.push(route.request().postDataJSON().text);
+    return route.fulfill({ status: 200, headers, body: wav });
+  });
+  await page.goto("/?preview=1");
+  await page.evaluate(async () => {
+    const robot = {
+      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      addEventListener() {}, removeEventListener() {},
+      uploadAudio: async () => "fixture-upload",
+      playUploadedAudio: async () => ({ started: true }),
+      cancelAudio: () => true,
+    };
+    const { mountApp } = await import("/src/embed.ts");
+    mountApp(robot as never, { attachVideo: () => () => {} } as never);
+  });
+  await page.locator("#tts-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Configure local TTS" }).click();
+  await page.locator("#tts-robot").check();
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+
+  await page.locator("#start").click();
+  await expect(page.locator("#tts-status")).toContainText("playback started");
+  await page.locator("#tts-robot").uncheck();
+  await page.locator("#tts-robot").check();
+  await page.getByRole("button", { name: "Begin statement 1" }).click();
+  await page.getByRole("button", { name: "New round" }).click();
+  await page.locator("#start").click();
+  await expect(page.locator("#tts-status")).toContainText("playback started");
+  expect(spoken).toEqual([
+    "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.",
+    "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.",
+  ]);
 });
 
 test("robot-speaker pick uses the fixed final cue line, never player statements", async ({ page }) => {

@@ -41,12 +41,22 @@ function randomPick(): StatementId {
   crypto.getRandomValues(value);
   return (["s1", "s2", "s3"] as const)[value[0]! % 3]!;
 }
-function speakLocal(text: string): void {
-  if (!("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.96;
-  speechSynthesis.speak(utterance);
+function cancelLocalSpeech(): void {
+  try { window.speechSynthesis?.cancel(); }
+  catch { /* Browser speech is optional; a failed cancel cannot block robot output. */ }
+}
+function speakLocal(text: string): boolean {
+  try {
+    const synthesis = window.speechSynthesis;
+    if (!synthesis || typeof SpeechSynthesisUtterance !== "function") return false;
+    synthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.96;
+    synthesis.speak(utterance);
+    return true; // Queued locally; the browser supplies no physical-audibility receipt.
+  } catch {
+    return false;
+  }
 }
 function createRecognition(): Recognition | null {
   const browser = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
@@ -185,7 +195,10 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let leaderboard: LeaderboardEntry[];
   try { leaderboard = parseLeaderboard(localStorage.getItem(LEADERBOARD_KEY)); }
   catch { leaderboard = []; }
-  let disclaimerSpoken = false;
+  let disclaimerIntroduced = false;
+  let openingLineQueued = false;
+  let openingHadDisclaimer = false;
+  let openingSpeechVersion = 0;
   let relay: JevPort | undefined = fixtureMode ? new OfflineFixturePort() : undefined;
   let jevAbort: AbortController | undefined;
   let busy = false;
@@ -274,28 +287,30 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   }
   function cancelGameSpeech() {
     speechVersion++;
-    if (!fixtureMode) speechSynthesis.cancel();
+    if (!fixtureMode) cancelLocalSpeech();
     robotSpeech?.cancel();
   }
-  async function speakGame(text: string) {
+  async function speakGame(text: string): Promise<boolean> {
     const version = ++speechVersion;
-    if (fixtureMode) return;
+    if (fixtureMode) return false;
     if (!ttsRobot.checked) {
       robotSpeech?.cancel();
-      speakLocal(text);
-      return;
+      return speakLocal(text);
     }
-    speechSynthesis.cancel();
+    cancelLocalSpeech();
     const output = robotSpeech;
     if (!output) {
       ttsStatus.textContent = "Robot speaker unavailable. Game line remains visible; no browser fallback.";
-      return;
+      return false;
     }
     try {
       await output.speak(text);
-      if (version === speechVersion) ttsStatus.textContent = "Robot playback started (completion not acknowledged).";
+      if (version !== speechVersion) return false;
+      ttsStatus.textContent = "Robot playback started (completion not acknowledged).";
+      return true;
     } catch {
       if (version === speechVersion) ttsStatus.textContent = "Robot speech failed. Game line remains visible; no browser fallback.";
+      return false;
     }
   }
   async function finishClip() {
@@ -615,7 +630,21 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     clipStatus.textContent = fixtureMode
       ? "No video clip in the offline fixture."
       : clipConsentForRound ? "Consented clip will start with statement 1, after the opening line." : "No clip recording requested.";
-    if (!fixtureMode) void speakGame(disclaimerSpoken ? "Three statements. Go." : "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go.");
+    openingLineQueued = false;
+    openingHadDisclaimer = !disclaimerIntroduced;
+    if (!fixtureMode) {
+      const version = roundVersion;
+      const openingLine = openingHadDisclaimer
+        ? "This is a game, not a lie detector. I judge language cues, not truth. Three statements. Go."
+        : "Three statements. Go.";
+      const openingSpeech = speakGame(openingLine);
+      openingSpeechVersion = speechVersion;
+      void openingSpeech.then((queued) => {
+        if (version === roundVersion && round.snapshot.phase === "intro") openingLineQueued = queued;
+      }, () => {
+        if (version === roundVersion && round.snapshot.phase === "intro") openingLineQueued = false;
+      });
+    }
     announce(fixtureMode
       ? "Offline fixture: fixed numbers are independent of your text. Begin statement 1."
       : "Wait until the opening line sounds finished, then begin statement 1.");
@@ -625,10 +654,11 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (round.snapshot.phase !== "intro") return;
     // An early operator click must not leave browser speech running into ASR.
     // The robot cancel is only a request; the operator still confirms silence.
+    const disclaimerWasQueued = openingHadDisclaimer && openingLineQueued && openingSpeechVersion === speechVersion;
     cancelGameSpeech();
     if (ttsRobot.checked) ttsStatus.textContent = "Robot playback cancellation requested before capture; silence is not acknowledged.";
     round.introDone();
-    disclaimerSpoken = true;
+    if (disclaimerWasQueued) disclaimerIntroduced = true;
     if (clipConsentForRound) {
       try {
         clipRecorder = new ClipRecorder(video, () => ({
