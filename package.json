@@ -21,7 +21,7 @@
   "dependencies": {
     "@pollen-robotics/reachy-mini-sdk": "1.8.0",
     "@typesafe-ai/sdk": "0.6.0",
-    "reachy-jev": "git+https://github.com/AbdelStark/reachy-jev.git#b0d03cb28579127c6c643ae5f9a3c4c896224b57"
+    "reachy-jev": "git+https://github.com/AbdelStark/reachy-jev.git#35b91073c6065071024d5ba3fc3bf3f0d0079f27"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
