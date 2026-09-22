@@ -10,8 +10,11 @@ import argparse
 import hmac
 import io
 import json
+import math
 import os
+import selectors
 import subprocess
+import time
 import wave
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +25,91 @@ SAMPLE_RATE = 16_000
 MAX_SECONDS = 20
 MAX_WAV_BYTES = 44 + SAMPLE_RATE * MAX_SECONDS * 2
 MAX_REQUEST_BYTES = 512
+MAX_STDERR_BYTES = 64_000
+
+
+def _run_bounded(
+    command: list[str], data: bytes, *, max_stdout: int, timeout_s: float = 10.0
+) -> bytes:
+    """Drain all child pipes while enforcing output and elapsed-time limits."""
+    if max_stdout < 1 or not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError("invalid process limits")
+    process = subprocess.Popen(
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert (
+        process.stdin is not None
+        and process.stdout is not None
+        and process.stderr is not None
+    )
+    streams = (process.stdin, process.stdout, process.stderr)
+    selector = selectors.DefaultSelector()
+    output = bytearray()
+    error = bytearray()
+    sent = 0
+    deadline = time.monotonic() + timeout_s
+    try:
+        for stream in streams:
+            os.set_blocking(stream.fileno(), False)
+        if data:
+            selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+        else:
+            process.stdin.close()
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout_s)
+            for key, _mask in selector.select(remaining):
+                stream = key.fileobj
+                try:
+                    if key.data == "stdin":
+                        sent += os.write(stream.fileno(), data[sent : sent + 64 * 1024])
+                        if sent == len(data):
+                            selector.unregister(stream)
+                            stream.close()
+                    else:
+                        target = output if key.data == "stdout" else error
+                        limit = max_stdout if key.data == "stdout" else MAX_STDERR_BYTES
+                        chunk = os.read(
+                            stream.fileno(), min(64 * 1024, limit - len(target) + 1)
+                        )
+                        if not chunk:
+                            selector.unregister(stream)
+                            stream.close()
+                        else:
+                            target.extend(chunk)
+                            if len(target) > limit:
+                                raise ValueError(
+                                    "offline TTS process exceeded output cap"
+                                )
+                except BrokenPipeError:
+                    if key.data != "stdin":
+                        raise
+                    selector.unregister(stream)
+                    stream.close()
+                except BlockingIOError:
+                    continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, timeout_s)
+        if process.wait(timeout=remaining) != 0 or not output:
+            raise RuntimeError("offline TTS process failed")
+        return bytes(output)
+    except BaseException:
+        if process.poll() is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass  # The child exited between poll and kill; still reap it.
+        process.wait()
+        raise
+    finally:
+        selector.close()
+        for stream in streams:
+            if not stream.closed:
+                stream.close()
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -83,16 +171,12 @@ class EspeakFfmpegVoice:
 
     def __call__(self, text: str) -> bytes:
         text = validate_text(text)
-        wav = subprocess.run(
+        wav = _run_bounded(
             ["espeak-ng", "--stdout", "--stdin", "-v", "en-us", "-s", "175"],
-            input=text.encode("utf-8"),
-            capture_output=True,
-            check=True,
-            timeout=10,
-        ).stdout
-        if not wav or len(wav) > 8_000_000:
-            raise ValueError("eSpeak output outside cap")
-        pcm = subprocess.run(
+            text.encode("utf-8"),
+            max_stdout=8_000_000,
+        )
+        pcm = _run_bounded(
             [
                 "ffmpeg",
                 "-hide_banner",
@@ -112,11 +196,9 @@ class EspeakFfmpegVoice:
                 "s16le",
                 "pipe:1",
             ],
-            input=wav,
-            capture_output=True,
-            check=True,
-            timeout=10,
-        ).stdout
+            wav,
+            max_stdout=SAMPLE_RATE * MAX_SECONDS * 2,
+        )
         return pcm_to_wav(pcm)
 
 

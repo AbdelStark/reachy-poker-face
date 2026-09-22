@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Bound eSpeak/FFmpeg stdout and stderr while reading, and kill and reap overproducing, timed-out, or failed local TTS children before a WAV can reach the browser. Synthetic subprocess and installed-binary tests cover software behavior, not robot playback.
 - Treat persistent relay HTTP 4xx rejections (except timeout/limit) as non-retryable. A live statement stays unlocked with a settings/contract explanation; a final rejection makes one request and an explicit unranked fallback. Fake-relay browser tests cover both without exposing response bodies or claiming model/robot behavior.
 - Show relay HTTP 429 as a request limit in live/final rounds, keep live text unlocked, and skip the futile final retry before the unranked fallback; fake-relay browser tests cover both paths.
 - Keep one filename for a completed local clip across repeated download/share attempts; a hosted browser test exposed a minute-boundary naming race, now covered by an explicit clock shift.

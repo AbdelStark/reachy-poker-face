@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 import threading
 import unittest
 from http.client import HTTPConnection
 
 from server.local_tts import (
     EspeakFfmpegVoice,
+    _run_bounded,
     create_tts_server,
     pcm_to_wav,
     validate_text,
@@ -105,6 +108,50 @@ class LocalTtsTests(unittest.TestCase):
                 token=TOKEN,
                 allowed_origin="https://remote.example",
                 synthesize=lambda _: WAV,
+            )
+
+    def test_subprocess_drains_stdin_and_returns_bounded_stdout(self):
+        result = _run_bounded(
+            [
+                sys.executable,
+                "-c",
+                "import sys; data=sys.stdin.buffer.read(); sys.stdout.buffer.write(data[:4])",
+            ],
+            b"ABCD" + b"x" * (1024 * 1024),
+            max_stdout=4,
+            timeout_s=2,
+        )
+        self.assertEqual(result, b"ABCD")
+
+    def test_subprocess_output_caps_and_timeout_fail_before_return(self):
+        stdout_flood = (
+            "import sys,time; sys.stdout.buffer.write(b'x'*4096); "
+            "sys.stdout.flush(); time.sleep(2)"
+        )
+        stderr_flood = (
+            "import sys,time; sys.stderr.buffer.write(b'x'*65000); "
+            "sys.stderr.flush(); time.sleep(2)"
+        )
+        with self.assertRaisesRegex(ValueError, "output cap"):
+            _run_bounded([sys.executable, "-c", stdout_flood], b"", max_stdout=128)
+        with self.assertRaisesRegex(ValueError, "output cap"):
+            _run_bounded([sys.executable, "-c", stderr_flood], b"", max_stdout=128)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            _run_bounded(
+                [sys.executable, "-c", "import time; time.sleep(2)"],
+                b"",
+                max_stdout=128,
+                timeout_s=0.05,
+            )
+        with self.assertRaisesRegex(RuntimeError, "process failed"):
+            _run_bounded(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.write('x'); sys.exit(7)",
+                ],
+                b"",
+                max_stdout=128,
             )
 
     @unittest.skipUnless(
