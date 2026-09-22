@@ -33,6 +33,9 @@ function request(url, options = {}) {
 
 test("relay requires a strong token and exact origin", async () => {
   assert.throws(() => createRelayServer({ token: "weak", allowedOrigin: ORIGIN, ask() {} }), TypeError);
+  for (const maxUpstreamAttempts of [0, 1.5, Number.POSITIVE_INFINITY, 10_001]) {
+    assert.throws(() => createRelayServer({ token: TOKEN, allowedOrigin: ORIGIN, ask() {}, maxUpstreamAttempts }), TypeError);
+  }
   let calls = 0;
   await withRelay(async () => { calls++; return { model: "fixture", answers: {} }; }, async (url) => {
     const forbidden = await request(url, { headers: { Origin: "https://other.example" } });
@@ -100,7 +103,27 @@ test("relay caps authenticated requests per minute without charging rejected ori
     clock += 60_000;
     assert.equal((await request(url)).status, 200);
     assert.equal(calls, 31);
-  }, { now: () => clock });
+  }, { now: () => clock, maxUpstreamAttempts: 31 });
+});
+
+test("upstream attempt cap persists across minute windows and counts failed calls", async () => {
+  let clock = 1_000;
+  let calls = 0;
+  await withRelay(async () => {
+    calls++;
+    if (calls === 1) throw new Error("upstream may already have billed");
+    return { model: "fixture", answers: {} };
+  }, async (url) => {
+    assert.equal((await request(url, { body: "{" })).status, 400);
+    assert.equal((await request(url)).status, 503);
+    clock += 60_000;
+    assert.equal((await request(url)).status, 200);
+    clock += 60_000;
+    const limited = await request(url);
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "upstream_attempt_limit" });
+    assert.equal(calls, 2);
+  }, { now: () => clock, maxUpstreamAttempts: 2 });
 });
 
 test("relay degrades to a non-sensitive error on upstream failure", async () => {

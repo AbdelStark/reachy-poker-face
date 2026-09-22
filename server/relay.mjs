@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 const MAX_BODY = 32 * 1024;
 const MAX_INFLIGHT = 4;
 const MAX_PER_MINUTE = 30;
+const DEFAULT_UPSTREAM_ATTEMPTS = 30;
 // Update these only after reviewing a versioned question-bank change. The
 // browser's wire snapshot test checks that both digests still match its banks.
 const QUESTION_HASHES = Object.freeze({
@@ -75,14 +76,16 @@ function validRequest(body) {
 }
 
 /** A deliberately narrow authenticated proxy; it never logs request state or API keys. */
-export function createRelayServer({ token, allowedOrigin, ask, now = () => performance.now() }) {
+export function createRelayServer({ token, allowedOrigin, ask, maxUpstreamAttempts = DEFAULT_UPSTREAM_ATTEMPTS, now = () => performance.now() }) {
   if (typeof token !== "string" || token.length < 32) throw new TypeError("relay token must have at least 32 characters");
   if (typeof allowedOrigin !== "string" || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError("invalid allowed origin");
   if (typeof ask !== "function") throw new TypeError("ask function required");
+  if (!Number.isSafeInteger(maxUpstreamAttempts) || maxUpstreamAttempts < 1 || maxUpstreamAttempts > 10_000) throw new TypeError("upstream attempt limit must be an integer from 1 to 10000");
   if (typeof now !== "function") throw new TypeError("clock function required");
   let inflight = 0;
   let windowStart = now();
   let calls = 0;
+  let upstreamAttempts = 0;
   return createServer(async (request, response) => {
     const origin = request.headers.origin === allowedOrigin ? allowedOrigin : undefined;
     if (request.headers.origin && !origin) return send(response, 403, { error: "origin_forbidden" });
@@ -119,6 +122,8 @@ export function createRelayServer({ token, allowedOrigin, ask, now = () => perfo
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
       catch { return send(response, 400, { error: "invalid_json" }, origin); }
       if (!validRequest(body)) return send(response, 400, { error: "invalid_request" }, origin);
+      if (upstreamAttempts >= maxUpstreamAttempts) return send(response, 429, { error: "upstream_attempt_limit" }, origin);
+      upstreamAttempts++;
       const result = await ask(body.state, body.questions);
       return send(response, 200, { model: result.model, answers: result.answers, usage: result.usage }, origin);
     } catch {

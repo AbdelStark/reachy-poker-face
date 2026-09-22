@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cap valid upstream model-call attempts per relay process (30 by default, configurable), reserving before the call and counting failures; minute-window resets do not renew the cap. This is not a billing or token budget.
 - Pin the shared `reachy-jev` Unicode transcript-bound update, keeping this game's validated question-bank dependency aligned with the other Reachy apps; game behavior and live-model quality are not inferred from the dependency test.
 - Close the trace writer's output vocabulary: reject free-form delivery labels, extra cue/weight fields, malformed or unbounded provenance, and truthy non-boolean text consent before retaining JSONL. Keep consented statement text explicitly bounded; this is an export boundary, not tamper-evident provenance.
 - Return defensive round snapshots, submitted statements, picks, and exports; isolate stored traces from caller-owned add results so later mutation cannot rewrite a JSONL record or insert text after a text-free round. This is not tamper-evident provenance.
