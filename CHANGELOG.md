@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Close the trace writer's output vocabulary: reject free-form delivery labels, extra cue/weight fields, malformed or unbounded provenance, and truthy non-boolean text consent before retaining JSONL. Keep consented statement text explicitly bounded; this is an export boundary, not tamper-evident provenance.
 - Return defensive round snapshots, submitted statements, picks, and exports; isolate stored traces from caller-owned add results so later mutation cannot rewrite a JSONL record or insert text after a text-free round. This is not tamper-evident provenance.
 - Restrict the local Jev relay to the reviewed live/final question-bank wires and bounded, game-shaped round states; cap authenticated POST attempts at 30 per minute before any model call. Synthetic relay and full-round browser tests cover the contract, not billed usage.
 - Add an opt-in, no-credential offline fixture round in browser preview with fixed text-independent answers and conspicuous provenance; disable relay, audio, clips, ranking, and calibration trace for that route. Unit and browser tests check the separation from Jev-backed rounds.

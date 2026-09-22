@@ -1,8 +1,8 @@
-import { commitStyle, type CommitThresholds, type CueProbabilities, type CueWeights, liveSuspicion } from "./cues.js";
+import { commitStyle, type CommitThresholds, type CueProbabilities, type CueWeights, type Delivery, liveSuspicion, validatedDelivery } from "./cues.js";
 
 export type Phase = "idle" | "intro" | "capture" | "react" | "think" | "commit" | "reveal" | "score";
 export type StatementId = "s1" | "s2" | "s3";
-export interface Statement { id: StatementId; text: string; delivery: readonly string[]; pLie: number }
+export interface Statement { id: StatementId; text: string; delivery: readonly Delivery[]; pLie: number }
 export interface Pick { choice: StatementId; confidence: number; style: ReturnType<typeof commitStyle>; source: "jev" | "fallback" | "fixture" }
 export interface RoundSnapshot { phase: Phase; statementNumber: number; statements: readonly Statement[]; pick?: Pick; actualLie?: StatementId; correct?: boolean }
 
@@ -17,12 +17,12 @@ export class Round {
   }
   start(): void { this.require("idle"); this.phase_ = "intro"; }
   introDone(): void { this.require("intro"); this.phase_ = "capture"; }
-  submit(text: string, delivery: readonly string[], cues: CueProbabilities, weights?: CueWeights): Statement {
+  submit(text: string, delivery: readonly Delivery[], cues: CueProbabilities, weights?: CueWeights): Statement {
     this.require("capture");
     const clean = text.trim();
     if (clean.split(/\s+/).length < 4 || clean.length > 400) throw new TypeError("statement must have 4+ words and <=400 characters");
     const id = `s${this.statements_.length + 1}` as StatementId;
-    const statement = { id, text: clean, delivery: [...delivery], pLie: liveSuspicion(cues, weights) };
+    const statement = { id, text: clean, delivery: validatedDelivery(delivery), pLie: liveSuspicion(cues, weights) };
     this.statements_.push(statement);
     this.phase_ = "react";
     return { ...statement, delivery: [...statement.delivery] };
@@ -63,8 +63,10 @@ export class Round {
   reset(): void { this.phase_ = "idle"; this.statements_ = []; this.pick_ = undefined; this.actualLie_ = undefined; }
   /** Export without identifying or statement text by default. */
   export(options: { keepText?: boolean } = {}): object {
+    if (!options || typeof options !== "object" || Array.isArray(options)
+      || (options.keepText !== undefined && typeof options.keepText !== "boolean")) throw new TypeError("keepText must be boolean");
     const snapshot = this.snapshot;
-    return { ...snapshot, statements: snapshot.statements.map((statement) => options.keepText ? statement : { id: statement.id, delivery: statement.delivery, pLie: statement.pLie }) };
+    return { ...snapshot, statements: snapshot.statements.map((statement) => options.keepText === true ? statement : { id: statement.id, delivery: statement.delivery, pLie: statement.pLie }) };
   }
   private require(phase: Phase): void { if (this.phase_ !== phase) throw new Error(`expected ${phase}, got ${this.phase_}`); }
 }

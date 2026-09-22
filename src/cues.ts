@@ -1,5 +1,13 @@
 export interface WordTiming { word: string; startMs: number; endMs: number }
 export type Delivery = "steady" | "hesitant" | "trailing off" | "self-corrected" | "fast, no pauses";
+const DELIVERY_BUCKETS: readonly Delivery[] = ["steady", "hesitant", "trailing off", "self-corrected", "fast, no pauses"];
+export function validatedDelivery(value: readonly Delivery[]): Delivery[] {
+  if (!Array.isArray(value) || value.length > DELIVERY_BUCKETS.length
+    || value.some((item) => !DELIVERY_BUCKETS.includes(item)) || new Set(value).size !== value.length) {
+    throw new TypeError("invalid delivery labels");
+  }
+  return [...value];
+}
 export interface DeliveryAnalysis { delivery: Delivery[]; length: "short" | "medium" | "long"; pauseCount: number; fillerCount: number; restartCount: number; wordsPerSecond: number }
 export function analyzeDelivery(words: readonly WordTiming[]): DeliveryAnalysis {
   if (!words.length) throw new TypeError("at least one word is required");

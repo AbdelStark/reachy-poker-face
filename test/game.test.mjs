@@ -54,8 +54,18 @@ test("round enforces sequence and text-free export", () => {
   assert.equal(round.reveal("s2"), true);
   assert.equal(JSON.stringify(round.export()).includes("statement number"), false);
   assert.equal(JSON.stringify(round.export({ keepText: true })).includes("statement number"), true);
+  assert.throws(() => round.export({ keepText: "true" }), TypeError);
   round.reset();
   assert.equal(round.snapshot.phase, "idle");
+});
+
+test("round refuses free-form delivery labels before retaining a statement", () => {
+  const round = new Round();
+  round.start();
+  round.introDone();
+  assert.throws(() => round.submit("one two three four", ["private spoken words"], cues), TypeError);
+  assert.equal(round.snapshot.phase, "capture");
+  assert.deepEqual(round.snapshot.statements, []);
 });
 
 test("round results and snapshots cannot mutate the active game's evidence", () => {

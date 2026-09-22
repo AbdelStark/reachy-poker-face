@@ -83,3 +83,36 @@ test("trace rejects partial rounds and mismatched evidence", () => {
   assert.throws(() => recorder.add(completedRound().snapshot, live, { ...final, choice: "s1" }, DEFAULT_THRESHOLDS), TypeError);
   assert.throws(() => recorder.add(completedRound(true).snapshot, live, final, DEFAULT_THRESHOLDS), TypeError);
 });
+
+test("default trace rejects hidden text in extra cue fields or delivery labels", () => {
+  const recorder = new SessionTrace();
+  const snapshot = completedRound().snapshot;
+  const extraCue = [{ ...live[0], cues: { ...cues, private_text: "secret phrase" } }, ...live.slice(1)];
+  assert.throws(() => recorder.add(snapshot, extraCue, final, DEFAULT_THRESHOLDS), TypeError);
+  const extraWeight = [{ ...live[0], weights: { ...DEFAULT_WEIGHTS, private_text: "secret phrase" } }, ...live.slice(1)];
+  assert.throws(() => recorder.add(snapshot, extraWeight, final, DEFAULT_THRESHOLDS), TypeError);
+  snapshot.statements[0].delivery = ["secret phrase"];
+  assert.throws(() => recorder.add(snapshot, live, final, DEFAULT_THRESHOLDS), TypeError);
+  assert.throws(() => recorder.add(completedRound().snapshot, live, final, DEFAULT_THRESHOLDS, "true"), TypeError);
+  assert.equal(recorder.count, 0);
+});
+
+test("trace rejects unbounded or non-vocabulary provenance before storing JSONL", () => {
+  const recorder = new SessionTrace();
+  for (const mutate of [
+    (snapshot) => { snapshot.statements[0].id = "private spoken words"; },
+    (snapshot) => { snapshot.statements[0].pLie = Number.NaN; },
+    (snapshot) => { snapshot.pick.style = "private spoken words"; },
+    (snapshot) => { snapshot.actualLie = "private spoken words"; },
+    (snapshot) => { delete snapshot.correct; },
+  ]) {
+    const snapshot = completedRound().snapshot;
+    mutate(snapshot);
+    assert.throws(() => recorder.add(snapshot, live, final, DEFAULT_THRESHOLDS), TypeError);
+  }
+  assert.throws(() => recorder.add(completedRound().snapshot, live, { ...final, model: "private spoken words" }, DEFAULT_THRESHOLDS), TypeError);
+  assert.throws(() => recorder.add(completedRound().snapshot, live, { ...final, model: undefined }, DEFAULT_THRESHOLDS), TypeError);
+  assert.throws(() => recorder.add(completedRound().snapshot, live, { ...final, topCue: "private spoken words" }, DEFAULT_THRESHOLDS), TypeError);
+  assert.throws(() => recorder.add(completedRound().snapshot, live, final, { ...DEFAULT_THRESHOLDS, privateText: "private spoken words" }), TypeError);
+  assert.equal(recorder.count, 0);
+});
