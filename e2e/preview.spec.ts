@@ -51,14 +51,26 @@ async function mockRelay(page: Page, failFinal = false, failLiveAt = 0) {
   });
 }
 
+async function openTool(page: Page, name: "Jev setup" | "Tune" | "Audio" | "Records") {
+  if (await page.locator(".tools-dialog").evaluate((dialog: HTMLDialogElement) => dialog.open)) {
+    await page.locator("#tools-close").click();
+  }
+  await page.getByRole("button", { name, exact: true }).click();
+}
+
+async function connectRelay(page: Page) {
+  await openTool(page, "Jev setup");
+  await page.locator("#relay-token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect relay" }).click();
+}
+
 async function startRound(page: Page) {
   await page.locator("#start").click();
   await page.getByRole("button", { name: "Begin statement 1" }).click();
 }
 
 async function playThreeStatements(page: Page) {
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   for (const [index, statement] of [
     "I once climbed a mountain",
@@ -137,8 +149,7 @@ test("opening line blocks capture and clip recording until the operator begins s
   await mockRelay(page);
   await page.goto("/?preview=1");
   await attachSyntheticVideo(page);
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#clip-consent").check();
   await page.locator("#start").click();
   await expect(page.locator("#phase")).toContainText("Opening line");
@@ -163,8 +174,7 @@ test("unavailable browser speech leaves the first disclaimer eligible for retry"
   await page.evaluate(() => {
     Object.defineProperty(window, "speechSynthesis", { value: undefined, configurable: true });
   });
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#start").click();
   await page.getByRole("button", { name: "Begin statement 1" }).click();
   await page.getByRole("button", { name: "New round" }).click();
@@ -205,8 +215,7 @@ test("new round cancels a pending judgment and ignores its late answer", async (
     catch { /* Reset aborts the first browser request before its fixture reply. */ }
   });
   await page.goto("/?preview=1");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await page.locator("#statement").fill("First round pending statement");
   await page.getByRole("button", { name: "Lock statement" }).click();
@@ -241,8 +250,7 @@ test("new round ignores a late browser-recognition callback", async ({ page }) =
   });
   await mockRelay(page);
   await page.goto("/?preview=1");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await page.locator("#browser-mic-consent").check();
   await page.getByRole("button", { name: "Use browser microphone" }).click();
@@ -274,8 +282,7 @@ test("browser speech requires fresh round consent and revocation fences late res
   });
   await mockRelay(page);
   await page.goto("/?preview=1");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await expect(page.locator("#browser-mic-consent")).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Use browser microphone" })).toBeDisabled();
@@ -306,6 +313,7 @@ test("browser speech requires fresh round consent and revocation fences late res
 });
 
 test("connected game keeps motion and antenna-tap start off until session arm", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await mockRelay(page);
   await page.goto("/?preview=1");
   await expect(page.locator("#connection")).toHaveText("UI preview");
@@ -327,9 +335,16 @@ test("connected game keeps motion and antenna-tap start off until session arm", 
     robot.dispatchEvent(new CustomEvent("state", { detail: { antennas: [0.4, 0] } }));
   });
   await expect(page.locator("#phase")).toHaveText("Ready when you are.");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
+  const layout = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollHeight > innerHeight,
+    submitBottom: document.querySelector("#submit")!.getBoundingClientRect().bottom,
+    verdictBottom: document.querySelector("#verdict")!.getBoundingClientRect().bottom,
+  }));
+  expect(layout.scroll).toBe(false);
+  expect(layout.submitBottom).toBeLessThanOrEqual(720);
+  expect(layout.verdictBottom).toBeLessThanOrEqual(720);
   await page.locator("#statement").fill("I once climbed a mountain");
   await page.getByRole("button", { name: "Lock statement" }).click();
   await expect(page.locator("#statements li")).toHaveCount(1);
@@ -370,8 +385,7 @@ test("a failed live cue keeps the statement open and requests neutral motion", a
     mountApp(robot as never, { attachVideo: () => () => {} } as never);
     (window as unknown as { failedLiveCommands: typeof commands }).failedLiveCommands = commands;
   });
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#motion-enable").check();
   await startRound(page);
   await page.locator("#statement").fill("I once climbed a mountain");
@@ -400,8 +414,7 @@ test("a relay limit explains why a live statement remains unlocked", async ({ pa
     return route.fulfill({ status: 429, headers, body: JSON.stringify({ error: "upstream_attempt_limit" }) });
   });
   await page.goto("/?preview=1");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await page.locator("#statement").fill("I once climbed a mountain");
   await page.getByRole("button", { name: "Lock statement" }).click();
@@ -419,8 +432,7 @@ test("a rejected live request leaves the statement unlocked with an actionable s
     return route.fulfill({ status: 401, headers, body: JSON.stringify({ error: "unauthorized", private_detail: "not for UI" }) });
   });
   await page.goto("/?preview=1");
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await page.locator("#statement").fill("I once climbed a mountain");
   await page.getByRole("button", { name: "Lock statement" }).click();
@@ -444,8 +456,7 @@ test("a rejected game pose disarms motion without losing the text round", async 
     const { mountApp } = await import("/src/embed.ts");
     (window as unknown as { failedMotionCleanup: () => void }).failedMotionCleanup = mountApp(robot as never, { attachVideo: () => () => {} } as never);
   });
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#motion-enable").check();
   await startRound(page);
   for (const [index, statement] of ["I once climbed a mountain", "I once met a dragon", "I once grew a tomato"].entries()) {
@@ -514,11 +525,11 @@ test("explicit robot-speaker mode cancels the opening line before capture", asyn
     const { mountApp } = await import("/src/embed.ts");
     mountApp(robot as never, media as never);
   });
+  await openTool(page, "Audio");
   await page.locator("#tts-token").fill(TOKEN);
   await page.getByRole("button", { name: "Configure local TTS" }).click();
   await page.locator("#tts-robot").check();
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#start").click();
   await expect(page.locator("#tts-status")).toContainText("playback started");
   const events = await page.evaluate(() => (window as unknown as { robotEvents: string[] }).robotEvents);
@@ -566,11 +577,11 @@ test("failed robot opening retries the disclaimer without browser speech support
     const { mountApp } = await import("/src/embed.ts");
     mountApp(robot as never, { attachVideo: () => () => {} } as never);
   });
+  await openTool(page, "Audio");
   await page.locator("#tts-token").fill(TOKEN);
   await page.getByRole("button", { name: "Configure local TTS" }).click();
   await page.locator("#tts-robot").check();
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
 
   await page.locator("#start").click();
   await expect(page.locator("#tts-status")).toContainText("Robot speech failed");
@@ -612,16 +623,18 @@ test("switching speaker mode cancels the disclaimer without consuming it", async
     const { mountApp } = await import("/src/embed.ts");
     mountApp(robot as never, { attachVideo: () => () => {} } as never);
   });
+  await openTool(page, "Audio");
   await page.locator("#tts-token").fill(TOKEN);
   await page.getByRole("button", { name: "Configure local TTS" }).click();
   await page.locator("#tts-robot").check();
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
 
   await page.locator("#start").click();
   await expect(page.locator("#tts-status")).toContainText("playback started");
+  await openTool(page, "Audio");
   await page.locator("#tts-robot").uncheck();
   await page.locator("#tts-robot").check();
+  await page.locator("#tools-close").click();
   await page.getByRole("button", { name: "Begin statement 1" }).click();
   await page.getByRole("button", { name: "New round" }).click();
   await page.locator("#start").click();
@@ -661,6 +674,7 @@ test("robot-speaker pick uses the fixed final cue line, never player statements"
     const { mountApp } = await import("/src/embed.ts");
     mountApp(robot as never, { attachVideo: () => () => {} } as never);
   });
+  await openTool(page, "Audio");
   await page.locator("#tts-token").fill(TOKEN);
   await page.getByRole("button", { name: "Configure local TTS" }).click();
   await page.locator("#tts-robot").check();
@@ -682,6 +696,24 @@ test("preview fits a narrow phone viewport without horizontal scrolling", async 
   await playThreeStatements(page);
   const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
+});
+
+test("desktop fixture keeps the stage and active controls in one viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/?preview=1&fixture=1");
+  await startRound(page);
+  await page.locator("#statement").fill("I once climbed a mountain");
+  await page.locator("#submit").click();
+  const layout = await page.evaluate(() => ({
+    pageHeight: document.documentElement.scrollHeight,
+    viewportHeight: document.documentElement.clientHeight,
+    visible: [".video-wrap", ".meter-card", "#verdict", "#statement", "#submit"].every((selector) => {
+      const rect = document.querySelector(selector)!.getBoundingClientRect();
+      return rect.top >= 0 && rect.bottom <= innerHeight;
+    }),
+  }));
+  expect(layout.pageHeight).toBeLessThanOrEqual(layout.viewportHeight);
+  expect(layout.visible).toBe(true);
 });
 
 test("silent clip recorder requires consent and produces a local video blob", async ({ page }) => {
@@ -722,8 +754,7 @@ test("clip consent can be withdrawn mid-round without ending the game", async ({
   await mockRelay(page);
   await page.goto("/?preview=1");
   await attachSyntheticVideo(page);
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await page.locator("#clip-consent").check();
   await startRound(page);
   await expect(page.locator("#clip-status")).toContainText("Recording silent local clip");
@@ -866,12 +897,15 @@ test("a Jev-backed round updates the local leaderboard without saving statements
   await expect(page.locator("#cue-rows li").first()).toContainText("50% weight");
   await expect(page.locator("#final-cue")).toContainText("Jev highlighted implausibility");
   await expect(page.locator("#final-cue")).toContainText("not evidence");
+  await openTool(page, "Records");
   await page.locator("#nickname").fill("Ada");
+  await page.locator("#tools-close").click();
   await page.locator('button[data-lie="s1"]').click();
   await expect(page.locator("#score")).toContainText("1 Jev round");
   await expect(page.locator("#leaderboard li")).toContainText("Ada · fooled Reachy 1/1 rounds");
   const saved = await page.evaluate(() => localStorage.getItem("reachy-poker-face.leaderboard.v1"));
   expect(saved).not.toContain("mountain");
+  await openTool(page, "Records");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Clear saved scores" }).click();
   await expect(page.locator("#leaderboard li")).toHaveCount(0);
@@ -882,7 +916,9 @@ test("a new round does not inherit the previous player's leaderboard nickname", 
   await mockRelay(page);
   await page.goto("/?preview=1");
   await playThreeStatements(page);
+  await openTool(page, "Records");
   await page.locator("#nickname").fill("Ada");
+  await page.locator("#tools-close").click();
   await page.locator('button[data-lie="s1"]').click();
   await expect(page.locator("#leaderboard li")).toContainText("Ada · fooled Reachy 1/1 rounds");
 
@@ -1017,8 +1053,7 @@ test("reset discards a consented recording before export", async ({ page }) => {
   await page.goto("/?preview=1");
   await attachSyntheticVideo(page);
   await page.locator("#clip-consent").check();
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
   await expect(page.locator("#clip-status")).toContainText("Recording silent");
   await page.getByRole("button", { name: "New round" }).click();
@@ -1032,7 +1067,9 @@ test("an unavailable final judgment is explicit and unranked", async ({ page }) 
   await page.goto("/?preview=1");
   await playThreeStatements(page);
   await expect(page.locator("#final-cue")).toBeHidden();
+  await openTool(page, "Records");
   await page.locator("#nickname").fill("Ada");
+  await page.locator("#tools-close").click();
   await page.locator('button[data-lie="s1"]').click();
   await expect(page.locator("#score")).toContainText("1 fallback round");
   await expect(page.locator("#score")).toContainText("0 Jev rounds");
@@ -1080,6 +1117,7 @@ test("default session trace download is text-free and keeps final provenance", a
   await playThreeStatements(page);
   await page.locator('button[data-lie="s2"]').click();
   await expect(page.locator("#trace-status")).toContainText("1 completed round");
+  await openTool(page, "Records");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download trace JSONL" }).click();
   const download = await downloadPromise;
@@ -1102,11 +1140,14 @@ test("default session trace download is text-free and keeps final provenance", a
 test("statement text enters a trace only with per-round consent", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
+  await openTool(page, "Records");
   await page.locator("#trace-text-consent").check();
+  await page.locator("#tools-close").click();
   await playThreeStatements(page);
   await expect(page.locator("#trace-text-consent")).not.toBeChecked();
   await expect(page.locator("#trace-text-consent")).toBeDisabled();
   await page.locator('button[data-lie="s1"]').click();
+  await openTool(page, "Records");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download trace JSONL" }).click();
   const jsonl = await readFile(await (await downloadPromise).path(), "utf8");
@@ -1209,9 +1250,9 @@ test("robot-audio consent and timed ASR feed the statement Jev state", async ({ 
       cleanup(); oscillator.stop(); await source.close();
     };
   });
-  await page.locator("#relay-token").fill(TOKEN);
-  await page.getByRole("button", { name: "Connect relay" }).click();
+  await connectRelay(page);
   await startRound(page);
+  await openTool(page, "Audio");
   await page.locator("#asr-token").fill(TOKEN);
   await page.getByRole("button", { name: "Configure local ASR" }).click();
   await page.getByRole("button", { name: "Record robot microphone" }).click();
@@ -1231,6 +1272,7 @@ test("robot-audio consent and timed ASR feed the statement Jev state", async ({ 
   await expect(page.locator("#statement")).toHaveValue("I once paused here");
   await expect(page.locator("#asr-status")).toContainText("4 timed words");
   expect(asrCalls).toBe(1);
+  await page.locator("#tools-close").click();
   await page.getByRole("button", { name: "Lock statement" }).click();
   await expect(page.locator("#statements li")).toHaveCount(1);
   const live = states.find((state) => state.bank === "pokerface.live@0.1.0");

@@ -1,7 +1,7 @@
 {
   "name": "reachy-poker-face",
   "version": "0.0.1",
-  "description": "Probability-driven two-truths-and-a-lie game for Reachy Mini",
+  "description": "A two-truths-and-a-lie game for Reachy Mini and Jev",
   "type": "module",
   "private": true,
   "license": "MIT",

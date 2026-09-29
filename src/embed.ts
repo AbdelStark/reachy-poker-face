@@ -80,7 +80,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       <header class="masthead"><div class="brand"><span class="brand-icon">🃏</span><div><p class="eyebrow">Reachy Mini game</p><h1>Poker Face</h1></div></div><div id="connection" class="connection"></div></header>
       <div class="layout">
         <section class="stage" aria-label="Game stage">
-          <div class="video-wrap"><video id="robot-video" autoplay playsinline muted aria-label="Reachy Mini camera"></video><div class="video-fallback" id="video-fallback">${robot ? "Waiting for robot camera…" : "Preview mode · no robot connected"}</div><span class="live-badge">GAME CUE METER</span></div>
+          <div class="video-wrap"><video id="robot-video" autoplay playsinline muted aria-label="Reachy Mini camera"></video><div class="video-fallback" id="video-fallback">${robot ? "Waiting for robot camera…" : fixtureMode ? '<div class="fixture-art" aria-hidden="true"><span>♠</span><span>?</span><span>♥</span></div><p>Offline fixture · no robot or camera</p>' : "Preview mode · no robot connected"}</div><span class="live-badge">GAME CUE METER</span></div>
           <div class="meter-card"><div class="meter-top"><span>Invented-story cue composite</span><strong id="meter-value">—</strong></div><div class="meter-track" role="progressbar" aria-label="Composite game cue meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter"><div class="meter-fill" id="meter-fill"></div></div><p class="meter-note">A weighted game score from Jev's text judgments, not a calibrated probability or lie detector.</p><section class="cue-breakdown" aria-label="Model cue breakdown"><h3>What moved the meter</h3><p id="cue-note">Lock a statement to see the four model cues and their weights.</p><ol id="cue-rows"></ol></section></div>
           <div class="verdict" id="verdict" aria-live="polite">Three statements. Two truths. One very expressive robot.</div>
           <p id="final-cue" class="final-cue" hidden></p>
@@ -88,7 +88,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
         <section class="controls" aria-label="Game controls">
           <div class="card"><div class="section-heading"><span class="step">01</span><h2>Connect Jev</h2></div><p class="small">Use a trusted relay. Your TypeSafe API key stays on its server; the relay token remains in this tab only.</p><form id="relay-form"><label>Relay URL<input id="relay-url" type="url" value="http://127.0.0.1:8047" autocomplete="url" required /></label><label>Session token<input id="relay-token" type="password" autocomplete="off" minlength="32" required /></label><button type="submit" class="secondary">Connect relay</button></form><p id="relay-status" class="status" aria-live="polite">Not connected</p></div>
           <div class="card"><div class="section-heading"><span class="step">02</span><h2>Game settings</h2></div><p class="small">Weights and commit thresholds apply to the next judgment. They are saved on this device; no statement text or relay token is saved.</p><form id="settings-form" class="settings-grid"><label>Lie-now cue <output for="w-lie-now" id="o-lie-now">50%</output><input id="w-lie-now" type="range" min="0" max="100" step="1" /></label><label>Implausibility <output for="w-implausible" id="o-implausible">20%</output><input id="w-implausible" type="range" min="0" max="100" step="1" /></label><label>Hedging <output for="w-hedged" id="o-hedged">20%</output><input id="w-hedged" type="range" min="0" max="100" step="1" /></label><label>Over-detail <output for="w-too-specific" id="o-too-specific">10%</output><input id="w-too-specific" type="range" min="0" max="100" step="1" /></label><label>Hedge from <output for="t-hedge" id="o-hedge">40%</output><input id="t-hedge" type="range" min="0" max="100" step="1" /></label><label>Confident from <output for="t-confident" id="o-confident">70%</output><input id="t-confident" type="range" min="0" max="100" step="1" /></label></form><p id="settings-status" class="status" aria-live="polite"></p><p class="small">Poker Face reacts to language cues in a party game. It cannot determine whether anyone is telling the truth.</p></div>
-          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><div ${robot ? "" : "hidden"}><label class="clip-consent"><input id="motion-enable" type="checkbox" /><span>Enable Reachy's game motion for this session after checking the robot and nearby space.</span></label><p id="motion-status" class="small" aria-live="polite">Motion off. Playing by text remains available; antenna taps need motion enabled.</p></div><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent, local video clip of this round.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, and stop after 30 seconds. The clip stays in this tab until you discard it, start a new round, or leave; download or share makes a separate copy. Shared copies cannot be recalled. You can stop and discard a clip without ending the round.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="Say or type one statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser microphone mode may send audio to its vendor and has no word timing. Antenna tap needs motion enabled and neutral antennas.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><div class="robot-tts" ${robot ? "" : "hidden"}><h3>Robot speaker · local TTS</h3><p class="small">Optional: only fixed game lines go to an authenticated loopback voice companion, then through Reachy's audio-upload API. Your statements are never spoken by this path.</p><form id="tts-form"><label>Local TTS URL<input id="tts-url" type="url" value="http://127.0.0.1:8050" required autocomplete="url" /></label><label>TTS token<input id="tts-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local TTS</button></form><label class="clip-consent"><input id="tts-robot" type="checkbox" disabled /><span>Use Reachy's speaker for game lines instead of this browser.</span></label><p id="tts-status" class="status" aria-live="polite">Browser speech selected. Robot speaker off.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><button id="share-clip" class="secondary" type="button" hidden>Share clip…</button><button id="discard-clip" class="text-button" type="button" hidden>Stop and discard clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
+          <div class="card"><div class="section-heading"><span class="step">03</span><h2>Play</h2></div><p id="phase" class="phase">Ready when you are.</p><div ${robot ? "" : "hidden"}><label class="clip-consent"><input id="motion-enable" type="checkbox" /><span>Enable game motion after checking Reachy's space and physical stop.</span></label><p id="motion-status" class="small" aria-live="polite">Motion off. Playing by text remains available; antenna taps need motion enabled.</p></div><label class="clip-consent"><input id="clip-consent" type="checkbox" /><span>Everyone visible agrees to a silent local clip.</span></label><p class="small">Clips require the robot camera, contain no audio or statement text, and stop after 30 seconds. The clip stays in this tab until you discard it, start a new round, or leave; download or share makes a separate copy. Shared copies cannot be recalled. You can stop and discard a clip without ending the round.</p><button id="start" class="primary" type="button">Start a round</button><div class="capture"><label for="statement">Statement <span id="statement-number">1</span> of 3</label><textarea id="statement" rows="3" maxlength="400" placeholder="One statement…"></textarea><div class="capture-actions"><button id="mic" class="secondary" type="button">Use browser microphone</button><button id="submit" class="primary" type="button">Lock statement</button></div><p class="small">Browser transcription may use its vendor. Antenna taps need motion armed.</p><div class="robot-asr" ${robot ? "" : "hidden"}><h3>Robot microphone · local ASR</h3><p class="small">Optional: a separate loopback companion turns one short robot-audio segment into word timings. No audio goes to Jev; only the resulting statement text and delivery buckets do.</p><form id="asr-form"><label>Local ASR URL<input id="asr-url" type="url" value="http://127.0.0.1:8049" required autocomplete="url" /></label><label>ASR token<input id="asr-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local ASR</button></form><label class="clip-consent"><input id="asr-consent" type="checkbox" /><span>For this round, send up to 15 seconds of Reachy's microphone audio to my local ASR companion. Do not start until everyone audible agrees.</span></label><button id="robot-mic" type="button" class="secondary">Record robot microphone</button><p id="asr-status" class="status" aria-live="polite">Robot microphone off. No audio sent.</p></div></div><div class="robot-tts" ${robot ? "" : "hidden"}><h3>Robot speaker · local TTS</h3><p class="small">Optional: only fixed game lines go to an authenticated loopback voice companion, then through Reachy's audio-upload API. Your statements are never spoken by this path.</p><form id="tts-form"><label>Local TTS URL<input id="tts-url" type="url" value="http://127.0.0.1:8050" required autocomplete="url" /></label><label>TTS token<input id="tts-token" type="password" required minlength="32" autocomplete="off" /></label><button type="submit" class="secondary">Configure local TTS</button></form><label class="clip-consent"><input id="tts-robot" type="checkbox" disabled /><span>Use Reachy's speaker for game lines instead of this browser.</span></label><p id="tts-status" class="status" aria-live="polite">Browser speech selected. Robot speaker off.</p></div><ol id="statements" class="statement-list"></ol><div id="reveal" class="reveal"><p>Which statement was the lie?</p><div class="reveal-actions"><button data-lie="s1" type="button">1</button><button data-lie="s2" type="button">2</button><button data-lie="s3" type="button">3</button></div></div><button id="download-clip" class="secondary" type="button" hidden>Download local clip</button><button id="share-clip" class="secondary" type="button" hidden>Share clip…</button><button id="discard-clip" class="text-button" type="button" hidden>Stop and discard clip</button><p id="clip-status" class="status" aria-live="polite"></p><button id="reset" class="text-button" type="button">New round</button><p id="score" class="score">0 rounds played</p></div>
           <div class="card"><div class="section-heading"><span class="step">04</span><h2>Local leaderboard</h2></div><p class="small">Type a nickname before revealing the lie to save this round's score on this device. Leave it blank for a tab-only game. No statement text is saved.</p><label for="nickname">Player nickname<input id="nickname" type="text" maxlength="24" autocomplete="off" placeholder="Optional" /></label><ol id="leaderboard" class="leaderboard-list"></ol><button id="clear-leaderboard" class="text-button" type="button">Clear saved scores</button><p id="leaderboard-status" class="status" aria-live="polite"></p></div>
           <div class="card"><div class="section-heading"><span class="step">05</span><h2>Session trace</h2></div><p class="small">Completed rounds stay in this tab only. Export JSONL to inspect picks and calibration later. Statement text is excluded by default; neither nickname nor video is included.</p><label class="clip-consent"><input id="trace-text-consent" type="checkbox" /><span>Include the next round's statement text in the trace export. Ask the player first.</span></label><button id="download-trace" class="secondary" type="button" disabled>Download trace JSONL</button><button id="clear-trace" class="text-button" type="button" disabled>Discard session trace</button><p id="trace-status" class="status" aria-live="polite">No completed rounds in this session.</p></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -102,6 +102,53 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     if (!element) throw new Error(`missing UI element: ${selector}`);
     return element;
   };
+  const controls = q<HTMLElement>(".controls");
+  const [setupCard, settingsCard, playCard, leaderboardCard, traceCard] = Array.from(controls.querySelectorAll<HTMLElement>(":scope > .card"));
+  if (!setupCard || !settingsCard || !playCard || !leaderboardCard || !traceCard) throw new Error("game panels missing");
+  setupCard.classList.add("tool-setup");
+  settingsCard.classList.add("tool-tuning");
+  playCard.classList.add("play-card");
+  controls.prepend(playCard);
+  playCard.append(q<HTMLElement>("#status"));
+  const clipConsent = q<HTMLElement>("#clip-consent").closest("label")!;
+  const clipDetails = document.createElement("details");
+  clipDetails.className = "clip-details";
+  clipDetails.innerHTML = "<summary>Clip privacy and limits</summary>";
+  clipDetails.append(clipConsent.nextElementSibling!);
+  clipConsent.after(clipDetails);
+  const audioCard = document.createElement("div");
+  audioCard.className = "card tool-audio";
+  audioCard.innerHTML = '<div class="section-heading"><h2>Audio</h2></div><p class="small">Browser speech is the default. Local companions are opt-in.</p>';
+  audioCard.append(q<HTMLElement>(".robot-asr"), q<HTMLElement>(".robot-tts"));
+  const panelCards = { setup: setupCard, tuning: settingsCard, audio: audioCard, records: leaderboardCard };
+  const tools = document.createElement("nav");
+  tools.className = "tools";
+  tools.setAttribute("aria-label", "Game tools");
+  tools.innerHTML = '<button type="button" data-panel="setup">Jev setup</button><button type="button" data-panel="tuning">Tune</button><button type="button" data-panel="audio">Audio</button><button type="button" data-panel="records">Records</button>';
+  q<HTMLElement>(".masthead").insertBefore(tools, q<HTMLElement>("#connection"));
+  const toolsDialog = document.createElement("dialog");
+  toolsDialog.className = "tools-dialog";
+  toolsDialog.setAttribute("aria-labelledby", "tools-title");
+  toolsDialog.innerHTML = '<header><h2 id="tools-title"></h2><button type="button" id="tools-close" aria-label="Close tools">×</button></header><div id="tools-content"></div>';
+  root!.append(toolsDialog);
+  const toolsContent = toolsDialog.querySelector<HTMLElement>("#tools-content")!;
+  toolsContent.append(setupCard, settingsCard, audioCard, leaderboardCard, traceCard);
+  const panelTitles = { setup: "Connect Jev", tuning: "Game settings", audio: "Audio", records: "Records and exports" };
+  function openPanel(panel: keyof typeof panelTitles) {
+    for (const [name, card] of Object.entries(panelCards)) card.hidden = name !== panel;
+    traceCard!.hidden = panel !== "records";
+    toolsDialog.querySelector<HTMLElement>("#tools-title")!.textContent = panelTitles[panel];
+    if (!toolsDialog.open) toolsDialog.showModal();
+  }
+  tools.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-panel]");
+    if (button) openPanel(button.dataset.panel as keyof typeof panelTitles);
+  });
+  toolsDialog.querySelector<HTMLButtonElement>("#tools-close")!.addEventListener("click", () => toolsDialog.close());
+  const howTo = document.createElement("ol");
+  howTo.id = "how-to";
+  howTo.innerHTML = "<li><b>01</b> Tell three stories</li><li><b>02</b> Watch Reachy guess</li><li><b>03</b> Reveal the invented one</li>";
+  q<HTMLButtonElement>("#start").after(howTo);
   const introGate = document.createElement("div");
   introGate.id = "intro-gate";
   introGate.className = "intro-gate";
@@ -123,7 +170,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   browserMicConsent.id = "browser-mic-consent";
   browserMicConsent.type = "checkbox";
   const browserMicConsentText = document.createElement("span");
-  browserMicConsentText.textContent = "For this round, everyone audible agrees to browser microphone transcription. The browser may send audio to its speech vendor. A final transcript auto-locks after a 1.5-second pause and goes to the configured Jev relay; processing already begun cannot be retracted.";
+  browserMicConsentText.textContent = "Everyone audible agrees to browser transcription (may use its vendor; sent audio cannot be recalled).";
   browserMicConsentLabel.append(browserMicConsent, browserMicConsentText);
   q<HTMLElement>(".capture-actions").after(browserMicConsentLabel);
   const relayForm = q<HTMLFormElement>("#relay-form");
@@ -170,18 +217,19 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     const relayDescription = relayForm.closest(".card")?.querySelector("p.small");
     if (relayDescription) relayDescription.textContent = "This local demo returns fixed values by statement slot. It does not inspect your words or contact Jev.";
     relayStatus.textContent = "Offline fixture active; no model request or relay connection.";
-    q<HTMLElement>("#video-fallback").textContent = "Offline fixture · no robot or camera";
     q<HTMLElement>(".meter-note").textContent = "A weighted composite of fixed demo values, not a model judgment, lie probability, or truth signal.";
     cueNote.textContent = "Lock a statement to see the fixed synthetic cue values and their weights.";
     q<HTMLElement>("#verdict").textContent = "Three typed statements. One fixed offline pick. No truth judgment.";
     q<HTMLElement>("footer").textContent = "Offline fixture: fixed numbers demonstrate the game mechanics. No Jev, robot, microphone, ranking, or calibration trace.";
     q<HTMLInputElement>("#clip-consent").disabled = true;
     browserMicConsent.disabled = true;
+    browserMicConsentLabel.hidden = true;
     nickname.disabled = true;
     traceTextConsent.disabled = true;
     q<HTMLElement>("#clip-status").textContent = "No video clip in the offline fixture.";
     q<HTMLElement>("#leaderboard-status").textContent = "Fixture rounds are not ranked or saved.";
   }
+  if (!robot) tools.querySelector<HTMLButtonElement>('[data-panel="audio"]')!.hidden = true;
   let round = new Round();
   const sessionTrace = new SessionTrace();
   let liveEvidence: LiveEvidence[] = [];
@@ -381,6 +429,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     q<HTMLElement>("#phase").textContent = phaseLabel;
     q<HTMLElement>("#statement-number").textContent = String(snapshot.statementNumber);
     q<HTMLButtonElement>("#start").hidden = snapshot.phase !== "idle";
+    howTo.hidden = snapshot.phase !== "idle";
     introGate.hidden = snapshot.phase !== "intro";
     q<HTMLElement>(".capture").hidden = !capture;
     q<HTMLElement>("#reveal").hidden = snapshot.phase !== "reveal";
@@ -396,6 +445,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     list.replaceChildren(...snapshot.statements.map((entry) => {
       const item = document.createElement("li");
       item.textContent = `${entry.id.toUpperCase()} · ${entry.text}`;
+      item.title = entry.text;
       return item;
     }));
     q<HTMLElement>("#score").textContent = fixtureMode
@@ -412,13 +462,14 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     cueRows.replaceChildren(...rows.map((row) => {
       const item = document.createElement("li");
       const label = document.createElement("span");
-      label.textContent = `${row.label} · ${Math.round(row.probability * 100)}% ${fixtureMode ? "fixed fixture value" : "model score"}`;
+      label.textContent = `${row.label} · ${Math.round(row.probability * 100)}%`;
+      label.title = fixtureMode ? "Fixed fixture value" : "Jev model score";
       const weight = document.createElement("span");
       weight.textContent = `${Math.round(row.effectiveWeight * 100)}% weight · ${Math.round(row.contribution * 100)} meter points`;
       const bar = document.createElement("progress");
       bar.max = 100;
       bar.value = Math.round(row.probability * 100);
-      bar.setAttribute("aria-label", `${row.label} model score`);
+      bar.setAttribute("aria-label", `${row.label} ${fixtureMode ? "fixed fixture value" : "model score"}`);
       item.append(label, weight, bar);
       return item;
     }));
@@ -612,7 +663,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     }
   }
   function startRound() {
-    if (!relay) return announce("Connect a Jev relay first.", true);
+    if (!relay) { openPanel("setup"); return announce("Connect a Jev relay first.", true); }
     if (round.snapshot.phase !== "idle") return;
     round.start();
     liveEvidence = [];
@@ -730,6 +781,8 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
       relay = new RelayPort(urlInput.value, tokenInput.value);
       tokenInput.value = "";
       relayStatus.textContent = "Relay configured for this tab";
+      tools.querySelector<HTMLButtonElement>('[data-panel="setup"]')!.textContent = "Jev ready";
+      toolsDialog.close();
       announce("Relay configured. Start a round.");
     } catch (error) {
       relayStatus.textContent = error instanceof Error ? error.message : "Invalid relay settings";

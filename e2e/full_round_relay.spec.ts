@@ -32,6 +32,7 @@ test("a synthetic full round retries one failed final relay call and exports a c
   if (!address || typeof address === "string") throw new Error("fixture relay did not bind to loopback");
   try {
     await page.goto("/?preview=1");
+    await page.getByRole("button", { name: "Jev setup" }).click();
     await page.locator("#relay-url").fill(`http://127.0.0.1:${address.port}`);
     await page.locator("#relay-token").fill(TOKEN);
     await page.getByRole("button", { name: "Connect relay" }).click();
@@ -63,6 +64,7 @@ test("a synthetic full round retries one failed final relay call and exports a c
 
     await page.locator("#reveal button[data-lie='s2']").click();
     await expect(page.locator("#trace-status")).toContainText("1 completed round");
+    await page.getByRole("button", { name: "Records" }).click();
     const downloadPromise = page.waitForEvent("download");
     await page.locator("#download-trace").click();
     const download = await downloadPromise;
