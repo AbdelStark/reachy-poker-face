@@ -94,7 +94,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
       </div>
-      <footer>Typed judgments choose; game code decides. Browser speech is the default; robot-speaker speech is opt-in and unverified on hardware.</footer>
+      <footer>Typed judgments choose; game code decides. Browser speech is the default; robot-speaker speech is opt-in.</footer>
     </main>`;
 
   const q = <T extends HTMLElement>(selector: string) => {
@@ -239,10 +239,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   let motionEpoch = 0;
   const taps = new AntennaTap();
   const cleanupVideo = media?.attachVideo(video);
-  if (robot) {
-    q<HTMLElement>("#video-fallback").hidden = true;
-    robot.subscribePose();
-  }
+  if (robot) q<HTMLElement>("#video-fallback").hidden = true;
   q<HTMLElement>("#connection").textContent = robot ? "Robot connected" : fixtureMode ? "Offline fixture · no Jev" : "UI preview";
 
   const sliderIds = ["w-lie-now", "w-implausible", "w-hedged", "w-too-specific", "t-hedge", "t-confident"] as const;
@@ -781,7 +778,7 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
   ttsRobot.addEventListener("change", () => {
     cancelGameSpeech();
     ttsStatus.textContent = ttsRobot.checked
-      ? "Robot speaker selected. Playback is unverified on hardware."
+      ? "Robot speaker selected. Start a round to test playback."
       : "Browser speech selected. Any active robot playback received a best-effort cancel request.";
   });
   asrConsent.addEventListener("change", () => {
@@ -994,7 +991,6 @@ export function mountApp(robot?: Robot, media?: RobotMedia) {
     clearTimeout(silenceTimer);
     cancelBrowserRecognition();
     robot?.removeEventListener("state", onState);
-    robot?.unsubscribePose();
     cleanupVideo?.();
     round.reset();
     relay = undefined;

@@ -308,12 +308,11 @@ test("browser speech requires fresh round consent and revocation fences late res
 test("connected game keeps motion and antenna-tap start off until session arm", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const commands: unknown[] = [];
     const robot = Object.assign(new EventTarget(), {
       state: "streaming",
-      subscribePose() {},
-      unsubscribePose() {},
       gotoTarget(target: unknown) { commands.push(target); return true; },
     });
     const { mountApp } = await import("/src/embed.ts");
@@ -359,11 +358,12 @@ test("connected game keeps motion and antenna-tap start off until session arm", 
 test("a failed live cue keeps the statement open and requests neutral motion", async ({ page }) => {
   await mockRelay(page, false, 2);
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const commands: Array<{ antennas?: number[] }> = [];
     const robot = {
       state: "streaming",
-      subscribePose() {}, unsubscribePose() {}, addEventListener() {}, removeEventListener() {},
+      addEventListener() {}, removeEventListener() {},
       gotoTarget(target: { antennas?: number[] }) { commands.push(target); return true; },
     };
     const { mountApp } = await import("/src/embed.ts");
@@ -433,11 +433,12 @@ test("a rejected live request leaves the statement unlocked with an actionable s
 test("a rejected game pose disarms motion without losing the text round", async ({ page }) => {
   await mockRelay(page);
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     let commands = 0;
     const robot = {
       state: "streaming",
-      subscribePose() {}, unsubscribePose() {}, addEventListener() {}, removeEventListener() {},
+      addEventListener() {}, removeEventListener() {},
       gotoTarget() { if (++commands > 1) throw new Error("synthetic SDK pose failure"); return true; },
     };
     const { mountApp } = await import("/src/embed.ts");
@@ -497,12 +498,13 @@ test("explicit robot-speaker mode cancels the opening line before capture", asyn
     return route.fulfill({ status: 200, headers, body: wav });
   });
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const events: string[] = [];
     (window as unknown as { robotEvents: string[] }).robotEvents = events;
     Object.defineProperty(window.speechSynthesis, "speak", { value: () => events.push("browser-speak"), configurable: true });
     const robot = {
-      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      gotoTarget() {},
       addEventListener() {}, removeEventListener() {},
       uploadAudio: async (blob: Blob) => { events.push(`upload:${blob.type}:${blob.size}`); return "fixture-upload"; },
       playUploadedAudio: async (id: string) => { events.push(`play:${id}`); return { started: true as const }; },
@@ -551,10 +553,11 @@ test("failed robot opening retries the disclaimer without browser speech support
       : { status: 200, headers, body: wav });
   });
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     Object.defineProperty(window, "speechSynthesis", { value: undefined, configurable: true });
     const robot = {
-      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      gotoTarget() {},
       addEventListener() {}, removeEventListener() {},
       uploadAudio: async () => "fixture-upload",
       playUploadedAudio: async () => ({ started: true }),
@@ -597,9 +600,10 @@ test("switching speaker mode cancels the disclaimer without consuming it", async
     return route.fulfill({ status: 200, headers, body: wav });
   });
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const robot = {
-      subscribePose() {}, unsubscribePose() {}, gotoTarget() {},
+      gotoTarget() {},
       addEventListener() {}, removeEventListener() {},
       uploadAudio: async () => "fixture-upload",
       playUploadedAudio: async () => ({ started: true }),
@@ -645,9 +649,10 @@ test("robot-speaker pick uses the fixed final cue line, never player statements"
     return route.fulfill({ status: 200, headers, body: wav });
   });
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const robot = {
-      subscribePose() {}, unsubscribePose() {}, gotoTarget() { return true; },
+      gotoTarget() { return true; },
       addEventListener() {}, removeEventListener() {},
       uploadAudio: async () => "fixture-upload",
       playUploadedAudio: async () => ({ started: true }),
@@ -1185,6 +1190,7 @@ test("robot-audio consent and timed ASR feed the statement Jev state", async ({ 
     ] }) });
   });
   await page.goto("/?preview=1");
+  await expect(page.locator("#connection")).toHaveText("UI preview");
   await page.evaluate(async () => {
     const source = new AudioContext();
     const oscillator = source.createOscillator();
@@ -1194,7 +1200,7 @@ test("robot-audio consent and timed ASR feed the statement Jev state", async ({ 
     await source.resume();
     const { mountApp } = await import("/src/embed.ts");
     const robot = {
-      state: "streaming", subscribePose() {}, unsubscribePose() {}, gotoTarget() { return true; },
+      state: "streaming", gotoTarget() { return true; },
       addEventListener() {}, removeEventListener() {},
     };
     const media = { robotStream: destination.stream, attachVideo() { return () => {}; } };
